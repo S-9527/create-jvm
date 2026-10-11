@@ -4,9 +4,16 @@
 
 import type { BuildTool, ProjectConfig } from '../types.js';
 
-/** `.gitignore` tailored to the build tool and IDE conventions. */
+/**
+ * `.gitignore` tailored to the build tool.
+ *
+ * The negations matter. `*.jar` would otherwise exclude the Maven wrapper's
+ * `maven-wrapper.jar`, and `.gradle/`/`build/` would exclude the Gradle
+ * wrapper jar — leaving `mvnw`/`gradlew` committed but unable to run on a fresh
+ * clone. IDEA's project wizard ships the same negations for this reason.
+ */
 export function renderGitignore(buildTool: BuildTool): string {
-  const common = `# Compiled output
+  const header = `# Compiled output
 target/
 build/
 out/
@@ -20,7 +27,6 @@ logs/
 # Package files
 *.jar
 *.war
-*.nar
 *.ear
 *.zip
 *.tar.gz
@@ -42,13 +48,21 @@ logs/
 Thumbs.db
 `;
 
-  const gradle = `
+  // Without these, the wrapper jar is ignored while the wrapper script is not,
+  // which breaks `./mvnw` and `./gradlew` for anyone who clones the project.
+  const buildToolRules =
+    buildTool === 'gradle'
+      ? `
 # Gradle
 .gradle/
 !gradle/wrapper/gradle-wrapper.jar
+`
+      : `
+# Maven wrapper
+!.mvn/wrapper/maven-wrapper.jar
 `;
 
-  return buildTool === 'gradle' ? `${common}${gradle}` : common;
+  return `${header}${buildToolRules}`;
 }
 
 /** A short `README.md` describing the generated project. */

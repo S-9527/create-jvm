@@ -308,3 +308,20 @@ describe('Spring Boot configuration file format', () => {
     expect(listFiles(files)).toContain('core/src/main/resources/application.yaml');
   });
 });
+
+describe('gitignore keeps the build wrapper usable', () => {
+  it('does not ignore the Maven wrapper jar', async () => {
+    const gitignore = text(await generateMaven(config()), '.gitignore');
+    // `*.jar` must be negated, or a fresh clone has mvnw but no jar to run it.
+    expect(gitignore).toContain('*.jar');
+    expect(gitignore).toContain('!.mvn/wrapper/maven-wrapper.jar');
+  });
+
+  it('does not ignore the Gradle wrapper jar', async () => {
+    const gitignore = text(
+      await generateGradle(config({ kind: 'gradle', buildTool: 'gradle' })),
+      '.gitignore',
+    );
+    expect(gitignore).toContain('!gradle/wrapper/gradle-wrapper.jar');
+  });
+});
