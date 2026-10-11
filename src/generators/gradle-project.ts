@@ -26,8 +26,7 @@ import {
   testSourcePath,
   type SourceOptions,
 } from './sources.js';
-import { addGradleWrapper } from './wrapper.js';
-import { GRADLE_WRAPPER_VERSION, VERSIONS, junitFor } from '../versions.js';
+import { VERSIONS, junitFor } from '../versions.js';
 
 const MAIN_ROOT = 'src/main';
 const TEST_ROOT = 'src/test';
@@ -183,7 +182,6 @@ export async function generateGradle(config: ProjectConfig): Promise<FileMap> {
     }
   }
 
-  await addGradleWrapper(files, GRADLE_WRAPPER_VERSION);
   return files;
 }
 

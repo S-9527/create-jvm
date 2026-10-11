@@ -20,6 +20,19 @@ const WRAPPER_FILES = [
   'gradle/wrapper/gradle-wrapper.jar',
 ] as const;
 
+/** URL of the Gradle release tag holding the wrapper files. */
+export const GRADLE_WRAPPER_BASE = RAW_BASE;
+
+/**
+ * Build the download URL for one wrapper file.
+ *
+ * Exported so tests can point at an unreachable host: Node's `fetch` ignores the
+ * proxy environment variables, so a failure cannot be forced that way.
+ */
+export function gradleWrapperUrl(version: string, relativePath: string): string {
+  return `${RAW_BASE}/v${version}/${relativePath}`;
+}
+
 export interface WrapperResult {
   ok: boolean;
   /** How the wrapper was obtained, for reporting. */
@@ -39,21 +52,28 @@ export async function addGradleWrapper(
   files: FileMap,
   version: string = GRADLE_WRAPPER_VERSION,
   timeoutMs = 30_000,
+  /** Override URL construction; used by tests. */
+  urlFor: (version: string, relativePath: string) => string = gradleWrapperUrl,
 ): Promise<WrapperResult> {
-  const tag = `v${version}`;
-  const failures: string[] = [];
+  // Failures are tracked per path rather than by inspecting error text: a
+  // network error is just "fetch failed" and does not name the file, so
+  // matching on the message would misreport a missing jar as a success.
+  const failures: { relativePath: string; reason: string }[] = [];
 
   const downloads = await Promise.all(
     WRAPPER_FILES.map(async (relativePath) => {
-      const url = `${RAW_BASE}/${tag}/${relativePath}`;
+      const url = urlFor(version, relativePath);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status} for ${relativePath}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return { relativePath, buffer: Buffer.from(await response.arrayBuffer()) };
       } catch (error) {
-        failures.push(error instanceof Error ? error.message : String(error));
+        failures.push({
+          relativePath,
+          reason: `${relativePath}: ${error instanceof Error ? error.message : String(error)}`,
+        });
         return undefined;
       } finally {
         clearTimeout(timer);
@@ -70,12 +90,16 @@ export async function addGradleWrapper(
     return { ok: true, source: 'download' };
   }
 
-  // A missing jar is fatal: `gradlew` cannot bootstrap without it. Missing
-  // scripts are tolerated because the project is still buildable with a locally
-  // installed Gradle.
-  const jarMissing = failures.some((f) => f.includes('gradle-wrapper.jar'));
-  const message = `could not fetch the Gradle wrapper (${failures.join('; ')})`;
-  if (jarMissing) return { ok: false, source: 'none', message };
+  // A missing jar is fatal: `gradlew` cannot bootstrap without it. Any files
+  // already added are removed so the project never ships a half-written
+  // wrapper, and it falls back to a locally installed Gradle.
+  const jarMissing = failures.some((f) => f.relativePath.endsWith('gradle-wrapper.jar'));
+  const message = `could not fetch the Gradle wrapper (${failures.map((f) => f.reason).join('; ')})`;
+  if (jarMissing) {
+    for (const relativePath of WRAPPER_FILES) files.delete(relativePath);
+    files.delete('gradle/wrapper/gradle-wrapper.properties');
+    return { ok: false, source: 'none', message };
+  }
   return { ok: true, source: 'download', message };
 }
 

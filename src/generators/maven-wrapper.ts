@@ -19,6 +19,37 @@ export const MAVEN_VERSION = '3.9.16';
 const RAW_BASE = 'https://raw.githubusercontent.com/apache/maven-wrapper';
 const MAVEN_CENTRAL = 'https://repo1.maven.org/maven2';
 
+/** A file the wrapper needs, and where to get it. */
+export interface WrapperTarget {
+  url: string;
+  path: string;
+}
+
+/**
+ * The files making up the Maven wrapper.
+ *
+ * Exported so tests can substitute unreachable URLs instead of hitting the
+ * network: Node's `fetch` ignores the proxy environment variables, so a test
+ * cannot force a failure that way.
+ */
+export function mavenWrapperTargets(wrapperVersion: string): WrapperTarget[] {
+  const tag = `maven-wrapper-${wrapperVersion}`;
+  return [
+    {
+      url: `${RAW_BASE}/${tag}/maven-wrapper-distribution/src/resources/mvnw`,
+      path: 'mvnw',
+    },
+    {
+      url: `${RAW_BASE}/${tag}/maven-wrapper-distribution/src/resources/mvnw.cmd`,
+      path: 'mvnw.cmd',
+    },
+    {
+      url: `${MAVEN_CENTRAL}/org/apache/maven/wrapper/maven-wrapper/${wrapperVersion}/maven-wrapper-${wrapperVersion}.jar`,
+      path: '.mvn/wrapper/maven-wrapper.jar',
+    },
+  ];
+}
+
 export interface MavenWrapperResult {
   ok: boolean;
   message?: string;
@@ -43,29 +74,20 @@ distributionUrl=https://repo.maven.apache.org/maven2/org/apache/maven/apache-mav
  */
 export async function addMavenWrapper(
   files: FileMap,
-  options: { mavenVersion?: string; wrapperVersion?: string; timeoutMs?: number } = {},
+  options: {
+    mavenVersion?: string;
+    wrapperVersion?: string;
+    timeoutMs?: number;
+    /** Override the download locations; used by tests. */
+    targets?: WrapperTarget[];
+  } = {},
 ): Promise<MavenWrapperResult> {
   const {
     mavenVersion = MAVEN_VERSION,
     wrapperVersion = MAVEN_WRAPPER_VERSION,
     timeoutMs = 30_000,
+    targets = mavenWrapperTargets(wrapperVersion),
   } = options;
-  const tag = `maven-wrapper-${wrapperVersion}`;
-
-  const targets: { url: string; path: string }[] = [
-    {
-      url: `${RAW_BASE}/${tag}/maven-wrapper-distribution/src/resources/mvnw`,
-      path: 'mvnw',
-    },
-    {
-      url: `${RAW_BASE}/${tag}/maven-wrapper-distribution/src/resources/mvnw.cmd`,
-      path: 'mvnw.cmd',
-    },
-    {
-      url: `${MAVEN_CENTRAL}/org/apache/maven/wrapper/maven-wrapper/${wrapperVersion}/maven-wrapper-${wrapperVersion}.jar`,
-      path: `.mvn/wrapper/maven-wrapper.jar`,
-    },
-  ];
 
   const results = await Promise.all(
     targets.map(async ({ url, path }) => {
@@ -89,14 +111,18 @@ export async function addMavenWrapper(
     else if ('error' in result && result.error) failures.push(result.error);
   }
 
+  // A partial wrapper is worse than none: a properties file without the script
+  // or jar would make `./mvnw` fail confusingly. On any failure the wrapper is
+  // left out entirely and the project relies on a system `mvn`.
+  if (failures.length > 0) {
+    for (const { path } of targets) files.delete(path);
+    return { ok: false, message: `could not fetch the Maven wrapper (${failures.join('; ')})` };
+  }
+
   addFile(
     files,
     '.mvn/wrapper/maven-wrapper.properties',
     renderMavenWrapperProperties(mavenVersion, wrapperVersion),
   );
-
-  if (failures.length > 0) {
-    return { ok: false, message: `could not fetch the Maven wrapper (${failures.join('; ')})` };
-  }
   return { ok: true };
 }

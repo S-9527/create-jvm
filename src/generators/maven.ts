@@ -9,7 +9,6 @@ import type { Dependency, ProjectConfig } from '../types.js';
 import { junitFor, VERSIONS } from '../versions.js';
 import { renderGitignore, renderMavenJvmConfig, renderReadme } from './common.js';
 import { renderPom } from './pom.js';
-import { addMavenWrapper } from './maven-wrapper.js';
 import {
   mainClassFqn,
   mainSourcePath,
@@ -155,7 +154,6 @@ export async function generateMaven(config: ProjectConfig): Promise<FileMap> {
       addFile(files, `${module}/.gitignore`, renderGitignore('maven'));
     }
 
-    await addMavenWrapper(files);
     return files;
   }
 
@@ -187,7 +185,6 @@ export async function generateMaven(config: ProjectConfig): Promise<FileMap> {
     addFile(files, 'src/main/resources/log4j2.xml', renderLog4jConfig(config.packageName));
   }
 
-  await addMavenWrapper(files);
   return files;
 }
 

@@ -11,6 +11,7 @@ import { generateGradle } from './generators/gradle-project.js';
 import { fetchInitializrProject } from './generators/initializr.js';
 import { fetchTemplate, restoreDotfiles } from './generators/remote.js';
 import { addGradleWrapper } from './generators/wrapper.js';
+import { addMavenWrapper } from './generators/maven-wrapper.js';
 import { GRADLE_WRAPPER_VERSION } from './versions.js';
 import { isEmptyDir, isDirectory, readdirSafe, remove } from './util/fsx.js';
 import { run, which } from './util/exec.js';
@@ -148,12 +149,17 @@ export async function execute(config: ProjectConfig, reporter: Reporter): Promis
   const files = await buildFileMap(config);
   const paths = listFiles(files);
 
-  // Gradle generation may have failed to fetch a wrapper; make sure one exists.
-  if (config.buildTool === 'gradle' && config.kind !== 'springboot' && config.kind !== 'template') {
-    if (!paths.includes('gradlew')) {
+  // Build wrappers are fetched here rather than inside the generators, so that
+  // a download failure is reported instead of being swallowed, and so the
+  // generators stay pure (no network, no I/O).
+  if (config.kind !== 'springboot' && config.kind !== 'template') {
+    if (config.buildTool === 'maven') {
+      const wrapper = await addMavenWrapper(files);
+      if (!wrapper.ok && wrapper.message) reporter.warn(wrapper.message);
+    } else if (!paths.includes('gradlew')) {
       const wrapper = await addGradleWrapper(files, GRADLE_WRAPPER_VERSION);
       if (wrapper.ok) {
-        reporter.info('added the Gradle wrapper');
+        if (wrapper.message) reporter.warn(wrapper.message);
       } else if (wrapper.message) {
         reporter.warn(wrapper.message);
       }
