@@ -8,6 +8,8 @@
 
 import path from 'node:path';
 import process from 'node:process';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { applyDefaults, isNonInteractive, parseArgs } from './args.js';
@@ -20,8 +22,34 @@ import { validateGroupId } from './util/naming.js';
 import { DEFAULT_BOOT_VERSION, VERSIONS } from './versions.js';
 import type { ProjectConfig } from './types.js';
 
-/** Read the package version without importing JSON (keeps the bundle simple). */
-const VERSION = '0.1.0';
+/**
+ * The CLI version, read from the installed package.json.
+ *
+ * This must not be hardcoded: a literal would drift from the published version
+ * on every release, and `create-jvm --version` would report the wrong number.
+ * The path is resolved relative to this module so it works both from `dist/`
+ * and from `src/` under tsx.
+ */
+function readVersion(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    // dist/index.js -> ../package.json; src/index.ts -> ../package.json
+    const candidates = [
+      path.resolve(here, '..', 'package.json'),
+      path.resolve(here, '..', '..', 'package.json'),
+    ];
+    for (const candidate of candidates) {
+      const raw = readFileSync(candidate, 'utf8');
+      const parsed = JSON.parse(raw) as { name?: string; version?: string };
+      if (parsed.name === 'create-jvm' && parsed.version) return parsed.version;
+    }
+  } catch {
+    // Fall through to the placeholder below.
+  }
+  return '0.0.0-unknown';
+}
+
+const VERSION = readVersion();
 
 /** Colours disabled when the terminal cannot handle them. */
 function makeColors(noColor: boolean): typeof pc {
