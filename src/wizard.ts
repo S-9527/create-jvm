@@ -32,8 +32,6 @@ export interface ProjectTemplate {
   hint: string;
   /** Which generator produces the project. */
   kind: ProjectKind;
-  /** Framework name, shown in the summary. */
-  framework: string;
   /** Build tools this framework supports, in preference order. */
   buildTools: BuildTool[];
   /** Source languages this framework supports, in preference order. */
@@ -54,43 +52,38 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     label: pc.green('Spring Boot'),
     hint: 'start.spring.io — starters, auto-config, embedded server',
     kind: 'springboot',
-    framework: 'Spring Boot',
     buildTools: ['maven', 'gradle'],
     languages: ['java', 'kotlin', 'groovy'],
   },
   {
     value: 'maven',
-    label: pc.yellow('Plain Maven project'),
+    label: pc.yellow('Maven'),
     hint: 'no framework, jar or war',
     kind: 'maven',
-    framework: 'Maven',
     buildTools: ['maven'],
     languages: ['java', 'kotlin', 'groovy'],
   },
   {
     value: 'gradle',
-    label: pc.blue('Plain Gradle project'),
+    label: pc.blue('Gradle'),
     hint: 'no framework, Groovy or Kotlin DSL',
     kind: 'gradle',
-    framework: 'Gradle',
     buildTools: ['gradle'],
     languages: ['java', 'kotlin', 'groovy'],
   },
   {
     value: 'template',
-    label: pc.magenta('From a git template'),
+    label: pc.magenta('Git template'),
     hint: 'gh:owner/repo, gitlab:, bitbucket: or a git URL',
     kind: 'template',
-    framework: 'Template',
     buildTools: ['maven'],
     languages: ['java'],
   },
   {
     value: 'custom',
-    label: pc.dim('Others') + pc.dim(' — customize everything'),
+    label: pc.dim('Others'),
     hint: 'war packaging, multi-module, explicit coordinates',
     kind: 'maven',
-    framework: 'Maven',
     buildTools: ['maven', 'gradle'],
     languages: ['java', 'kotlin', 'groovy'],
   },
@@ -568,7 +561,6 @@ function matchTemplateFromArgs(args: ParsedArgs): ProjectTemplate {
     label: kind,
     hint: '',
     kind,
-    framework: kind,
     buildTools: args.buildTool ? [args.buildTool] : ['maven', 'gradle'],
     languages: ['java', 'kotlin', 'groovy'],
   };

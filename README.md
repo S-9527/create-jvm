@@ -15,10 +15,10 @@ npx create-jvm my-app
 │
 ◆  Select a project type
 │  ● Spring Boot
-│  ○ Plain Maven project
-│  ○ Plain Gradle project
-│  ○ From a git template
-│  ○ Others — customize everything
+│  ○ Maven
+│  ○ Gradle
+│  ○ Git template
+│  ○ Others
 │  ↑/↓ to navigate • Enter: confirm
 │
 ◆  Select a build system
