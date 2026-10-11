@@ -98,7 +98,7 @@ Or install it globally:
 npm install -g create-jvm
 ```
 
-Requires **Node.js 18.17 or newer** and nothing else. You do not need Maven,
+Requires **Node.js 20.12 or newer** and nothing else. You do not need Maven,
 Gradle or a JDK to scaffold a project: generated projects carry their own
 wrapper (`mvnw` / `gradlew`), so the build tool is fetched on first build.
 

@@ -14,15 +14,16 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        # 18.17 is the documented floor; 20 and 22 guard against regressions.
-        node: ['18.17', '20', '22']
+        # 20.12 is the documented floor (@clack/prompts requires it); 22 and 24
+        # guard against regressions on current releases.
+        node: ['20.12', '22', '24']
         include:
           # Windows matters: the generated mvnw.cmd / gradlew.bat are only
           # exercised by a real Windows run.
           - os: windows-latest
-            node: '20'
+            node: '22'
           - os: macos-latest
-            node: '20'
+            node: '22'
 
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +32,14 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+
+      # Generated projects default to Java 21, so the runner needs a JDK at
+      # least that new. Without this the smoke build fails with
+      # "release version 21 not supported".
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
 
       - name: Install dependencies
         run: npm ci
@@ -52,13 +61,19 @@ jobs:
       # Generates real projects and builds them, so a broken template or a bad
       # plugin version fails CI rather than a user's first run.
       - name: Generate and build a Maven project
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         run: |
           node dist/cli.js smoke-maven --maven --dep lombok --no-git --no-color
           cd smoke-maven && ./mvnw -B -q package -DskipTests
 
       - name: Generate and build a Gradle project
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         run: |
           node dist/cli.js smoke-gradle --gradle --dsl kotlin --no-git --no-color
           cd smoke-gradle && ./gradlew --no-daemon -q build -x test
+
+      - name: Generate and build a Spring Boot project
+        if: runner.os == 'Linux'
+        run: |
+          node dist/cli.js smoke-boot --spring-boot --boot-dep web --no-git --no-color
+          cd smoke-boot && ./mvnw -B -q package -DskipTests
