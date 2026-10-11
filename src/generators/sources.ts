@@ -6,7 +6,7 @@
  * generation.
  */
 
-import { capitalize, escapeKotlin, escapeXml } from '../util/naming.js';
+import { escapeKotlin, escapeXml } from '../util/naming.js';
 import type { Language, ProjectConfig } from '../types.js';
 
 /** Inputs describing the entry point to emit. */
@@ -227,11 +227,6 @@ export function renderBootConfig(config: ProjectConfig): { filename: string; con
     return { filename: 'application.yaml', content: renderApplicationYaml(config) };
   }
   return { filename: 'application.properties', content: renderApplicationProperties(config) };
-}
-
-/** Human readable title used in generated README files. */
-export function projectTitle(config: ProjectConfig): string {
-  return capitalize(config.name.replace(/[-_]+/g, ' '));
 }
 
 /** Language label for README output. */

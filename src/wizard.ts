@@ -15,7 +15,7 @@
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { CATALOG, catalogGroups } from './catalog.js';
+import { catalogGroups } from './catalog.js';
 import {
   deriveArtifactId,
   derivePackageName,
@@ -27,7 +27,6 @@ import {
 import {
   JAVA_VERSIONS,
   DEFAULT_BOOT_VERSION,
-  DEFAULT_JAVA_VERSION,
   VERSIONS,
   initialJavaVersion,
 } from './versions.js';
@@ -780,5 +779,3 @@ function summarise(config: ProjectConfig): string {
   return lines.join('\n');
 }
 
-/** Expose the catalog size for callers that report on it. */
-export const wizardCatalogSize = CATALOG.length;

@@ -9,7 +9,7 @@
  */
 
 import { escapeGroovy, escapeKotlin } from '../util/naming.js';
-import { junitFor, VERSIONS } from '../versions.js';
+import { junitFor } from '../versions.js';
 import type { Dependency, ProjectConfig } from '../types.js';
 
 /** Inputs for the Gradle renderers. */
@@ -378,29 +378,3 @@ zipStorePath=wrapper/dists
 `;
 }
 
-/** The `shadow` plugin id and version used for fat jars. */
-export const SHADOW_PLUGIN = { id: 'com.gradleup.shadow', version: '9.6.1' } as const;
-
-/** Kotlin standard library coordinate for the configured version. */
-export function kotlinStdlib(kotlinVersion: string): Dependency {
-  return {
-    id: 'kotlin-stdlib',
-    name: 'Kotlin Standard Library',
-    group: 'Languages',
-    groupId: 'org.jetbrains.kotlin',
-    artifactId: 'kotlin-stdlib',
-    version: kotlinVersion,
-  };
-}
-
-/** Groovy coordinate for the configured version. */
-export function groovyDependency(): Dependency {
-  return {
-    id: 'groovy',
-    name: 'Apache Groovy',
-    group: 'Languages',
-    groupId: 'org.apache.groovy',
-    artifactId: 'groovy',
-    version: VERSIONS.groovy,
-  };
-}

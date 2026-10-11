@@ -34,12 +34,6 @@ export function addFile(map: FileMap, relativePath: string, content: FileContent
   map.set(normalizePath(relativePath), content);
 }
 
-/** Merge `other` into `map`; later entries win. */
-export function mergeFileMaps(map: FileMap, other: FileMap): FileMap {
-  for (const [key, value] of other) map.set(key, value);
-  return map;
-}
-
 /** Sorted relative paths in a file map. */
 export function listFiles(map: FileMap): string[] {
   return [...map.keys()].sort();

@@ -128,7 +128,7 @@ export function parseArgs(argv: string[]): ParseResult {
   const modules: string[] = [];
   let seenDoubleDash = false;
 
-  const takeValue = (flag: string, inline: string | undefined, index: number): [string | undefined, number] => {
+  const takeValue = (inline: string | undefined, index: number): [string | undefined, number] => {
     if (inline !== undefined) return [inline, index];
     const next = argv[index + 1];
     if (next === undefined || (next.startsWith('-') && next !== '-')) {
@@ -164,7 +164,7 @@ export function parseArgs(argv: string[]): ParseResult {
     }
 
     if (VALUE_FLAGS.has(flag)) {
-      const [value, consumedIndex] = takeValue(flag, inlineValue, i);
+      const [value, consumedIndex] = takeValue(inlineValue, i);
       i = consumedIndex;
       if (value === undefined) return { args, error: `option "${flag}" requires a value` };
 

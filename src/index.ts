@@ -10,7 +10,6 @@ import path from 'node:path';
 import process from 'node:process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { applyDefaults, isNonInteractive, parseArgs } from './args.js';
 import { helpText, usageText } from './help.js';
@@ -132,11 +131,7 @@ function resolveTargetDir(cwd: string, name: string): string {
 }
 
 /** Build a config directly from flags, without prompting. */
-function configFromArgs(
-  argv: string[],
-  cwd: string,
-  parsed: ReturnType<typeof parseArgs>,
-): ProjectConfig {
+function configFromArgs(cwd: string, parsed: ReturnType<typeof parseArgs>): ProjectConfig {
   const { args } = parsed;
   const defaults = applyDefaults(args);
   const name = args.name ?? 'demo';
@@ -239,7 +234,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       if (!wizardResult) return 1;
       config = wizardResult;
     } else {
-      config = configFromArgs(argv, cwd, parsed);
+      config = configFromArgs(cwd, parsed);
     }
 
     // Guard against silently generating into a populated directory.

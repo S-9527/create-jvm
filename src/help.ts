@@ -2,7 +2,7 @@
  * Help and version output.
  */
 
-import { CATALOG, catalogGroups } from './catalog.js';
+import { catalogGroups } from './catalog.js';
 import { GRADLE_WRAPPER_VERSION, INITIALIZR_BASE_URL, JAVA_VERSIONS, VERSIONS } from './versions.js';
 
 /** Long help text shown by `--help`. */
@@ -92,7 +92,3 @@ export function usageText(): string {
   return 'Usage: create-jvm [project-name] [options]\nRun "create-jvm --help" for the full option list.';
 }
 
-/** Number of catalog entries, used in summaries. */
-export function catalogSize(): number {
-  return CATALOG.length;
-}

@@ -13,7 +13,7 @@ import { fetchTemplate, restoreDotfiles } from './generators/remote.js';
 import { addGradleWrapper } from './generators/wrapper.js';
 import { addMavenWrapper } from './generators/maven-wrapper.js';
 import { GRADLE_WRAPPER_VERSION } from './versions.js';
-import { isEmptyDir, isDirectory, readdirSafe, remove } from './util/fsx.js';
+import { isDirectory, readdirSafe, remove } from './util/fsx.js';
 import { run, which } from './util/exec.js';
 import { contentLength, listFiles, materialize, type FileMap } from './writer.js';
 import type { ProjectConfig } from './types.js';

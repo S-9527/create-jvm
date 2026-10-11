@@ -95,12 +95,6 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
   });
 }
 
-/** True when `command --version` succeeds, i.e. the tool is on `PATH`. */
-export async function hasCommand(command: string): Promise<boolean> {
-  const probe = await run(command, ['--version'], { timeoutMs: 15_000 });
-  return !probe.spawnFailed;
-}
-
 /** Resolve the absolute path of a command, or `undefined` when absent. */
 export async function which(command: string): Promise<string | undefined> {
   const result = await run(process.platform === 'win32' ? 'where' : 'which', [command], {

@@ -5,7 +5,6 @@
  * templating engine so generated projects are byte-for-byte predictable.
  */
 
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -83,36 +82,3 @@ export async function remove(target: string): Promise<void> {
   await fs.rm(target, { recursive: true, force: true });
 }
 
-/** Recursively list every file below `dir`, as paths relative to `dir`. */
-export async function walkFiles(dir: string): Promise<string[]> {
-  const out: string[] = [];
-  async function visit(current: string): Promise<void> {
-    const entries = await fs.readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const absolute = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        await visit(absolute);
-      } else if (entry.isFile()) {
-        out.push(path.relative(dir, absolute));
-      }
-    }
-  }
-  if (await isDirectory(dir)) await visit(dir);
-  return out.sort();
-}
-
-/** SHA-256 digest of a string, used to detect generated-file drift. */
-export function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-/** Write a file only when its content differs, returning whether it changed. */
-export async function writeFileIfChanged(
-  file: string,
-  content: string,
-): Promise<boolean> {
-  const current = await readFileSafe(file);
-  if (current === content) return false;
-  await writeFile(file, content);
-  return true;
-}

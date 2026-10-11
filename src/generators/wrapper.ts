@@ -3,13 +3,12 @@
  *
  * The Gradle wrapper needs a binary `gradle-wrapper.jar`. Rather than vendoring
  * a jar in this package, the official files are fetched from the Gradle release
- * tag. When that is not possible the local `gradle` binary is asked to
- * generate the wrapper, and failing that the wrapper is simply omitted.
+ * tag. When that is not possible the wrapper is omitted and the project falls
+ * back to a locally installed Gradle.
  */
 
 import { GRADLE_WRAPPER_VERSION } from '../versions.js';
 import { addFile, type FileMap } from '../writer.js';
-import { run, which } from '../util/exec.js';
 
 const RAW_BASE = 'https://raw.githubusercontent.com/gradle/gradle';
 
@@ -19,9 +18,6 @@ const WRAPPER_FILES = [
   'gradlew.bat',
   'gradle/wrapper/gradle-wrapper.jar',
 ] as const;
-
-/** URL of the Gradle release tag holding the wrapper files. */
-export const GRADLE_WRAPPER_BASE = RAW_BASE;
 
 /**
  * Build the download URL for one wrapper file.
@@ -103,29 +99,6 @@ export async function addGradleWrapper(
   return { ok: true, source: 'download', message };
 }
 
-/** Ask the local Gradle binary to fill in the wrapper inside `dir`. */
-export async function runGradleWrapperTask(
-  dir: string,
-  version: string = GRADLE_WRAPPER_VERSION,
-): Promise<WrapperResult> {
-  if (!(await which('gradle'))) {
-    return { ok: false, source: 'none', message: 'gradle is not installed' };
-  }
-  const result = await run(
-    'gradle',
-    ['wrapper', '--gradle-version', version, '--no-daemon', '--quiet'],
-    { cwd: dir, timeoutMs: 180_000 },
-  );
-  if (result.spawnFailed || result.code !== 0) {
-    const detail = result.stderr.trim().split('\n').slice(-3).join(' ');
-    return {
-      ok: false,
-      source: 'none',
-      message: `\`gradle wrapper\` failed${detail ? `: ${detail}` : ''}`,
-    };
-  }
-  return { ok: true, source: 'gradle' };
-}
 
 /** Contents of `gradle/wrapper/gradle-wrapper.properties`. */
 export function renderWrapperProperties(version: string): string {

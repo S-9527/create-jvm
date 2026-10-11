@@ -11,7 +11,7 @@
  */
 
 import { INITIALIZR_BASE_URL } from '../versions.js';
-import { addFile, type FileMap } from '../writer.js';
+import type { FileMap } from '../writer.js';
 import { extractArchive } from '../util/archive.js';
 import type { ProjectConfig } from '../types.js';
 

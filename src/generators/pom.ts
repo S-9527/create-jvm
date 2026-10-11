@@ -240,7 +240,6 @@ function warPluginXml(level: number): string {
 /** Render a complete `pom.xml`. */
 export function renderPom(options: PomOptions): string {
   const { config, dependencies, parent, modules, mainClass } = options;
-  const junit = junitFor(config.javaVersion);
 
   const properties: [string, string][] = [
     ['project.build.sourceEncoding', 'UTF-8'],
