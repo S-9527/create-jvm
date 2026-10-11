@@ -8,31 +8,38 @@ npx create-jvm my-app
 ```
 
 ```text
-┌  create-jvm — new JVM project
+┌  create-jvm  the JVM project scaffolder
 │
 ◇  Project name
-│  my-app
+│  shop-api
 │
-◇  Project type
-│  Spring Boot
+◆  Select a project type
+│  ● Spring Boot
+│  ○ Plain Maven project
+│  ○ Plain Gradle project
+│  ○ From a git template
+│  ○ Others — customize everything
+│  ↑/↓ to navigate • Enter: confirm
 │
-◇  Build system
-│  Maven
+◆  Select a build system
+│  ● Maven — pom.xml
+│  ○ Gradle — build.gradle / build.gradle.kts
 │
-◇  Language
-│  Java
+◆  Select a language
+│  ● Java
+│  ○ Kotlin
+│  ○ Groovy
 │
-◇  Java version
-│  21
+◆  Select dependencies
+│  ...
 │
-◇  Spring Boot version
-│  4.1.1
-│
-◇  Dependencies
-│  Spring Web, Spring Data JPA, Spring Boot Actuator
-│
-└  Done.
+└  Ready. Generating shop-api…
 ```
+
+The build system and language are asked as separate steps, in the same order the
+IDE wizard uses, so the type list stays short. Coordinates (`groupId`,
+`artifactId`, package, Java release) are derived from the project name and only
+asked for under **Others**.
 
 ## Why
 
@@ -40,6 +47,9 @@ npx create-jvm my-app
 the equivalent is a GUI wizard, a website, or copying a project by hand. This
 tool closes that gap: the same choices the IDE offers, in a terminal, with a
 non-interactive mode that works in scripts and CI.
+
+It is built on the same prompt library as `create-vite`, so the interaction
+feels identical.
 
 ## Install
 
@@ -89,6 +99,10 @@ create-jvm my-app --maven                          # plain Maven
 create-jvm my-app --gradle                         # plain Gradle
 create-jvm my-app --spring-boot                    # Spring Boot
 create-jvm my-app -t gh:spring-projects/spring-petclinic   # remote template
+
+# or via the create-* convention, no install needed
+pnpm create jvm my-app
+npm create jvm my-app
 ```
 
 ### Common options

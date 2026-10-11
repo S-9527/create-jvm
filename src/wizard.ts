@@ -1,14 +1,16 @@
 /**
  * The interactive wizard.
  *
- * This mirrors the IntelliJ IDEA "New Project" dialog: project type, language,
- * build system, coordinates and dependencies, in that order. Any value already
- * supplied on the command line is skipped, so `--spring-boot --dep web` only
- * prompts for what is still missing.
+ * Shaped like `create-vite`: ask for a name, present one flat list of project
+ * types, ask which dependencies to include, and then offer an opt-in
+ * "customize" step for the details most people never change (coordinates, Java
+ * release, modules). Anything already supplied on the command line is skipped,
+ * so `--spring-boot --dep web` only prompts for what is still missing.
  */
 
-import * as p from '@clack/prompts';
 import path from 'node:path';
+import * as p from '@clack/prompts';
+import pc from 'picocolors';
 import { CATALOG, catalogGroups } from './catalog.js';
 import {
   deriveArtifactId,
@@ -22,6 +24,89 @@ import { JAVA_VERSIONS, DEFAULT_BOOT_VERSION, VERSIONS } from './versions.js';
 import { fetchMetadata, type InitializrMetadata } from './generators/initializr.js';
 import type { BuildTool, GradleDsl, Language, Packaging, ProjectConfig, ProjectKind } from './types.js';
 import type { ParsedArgs } from './args.js';
+
+/** One entry in the project-type list. */
+export interface ProjectTemplate {
+  value: string;
+  label: string;
+  hint: string;
+  /** Which generator produces the project. */
+  kind: ProjectKind;
+  /** Framework name, shown in the summary. */
+  framework: string;
+  /** Build tools this framework supports, in preference order. */
+  buildTools: BuildTool[];
+  /** Source languages this framework supports, in preference order. */
+  languages: Language[];
+}
+
+/**
+ * The project types offered up front.
+ *
+ * Only the framework is chosen here; the build system is a separate question,
+ * which is the order the IntelliJ IDEA wizard uses. Keeping them apart avoids
+ * an explosion of entries ("Spring Boot > Gradle > Kotlin DSL > ...") and means
+ * adding a language never doubles the length of this list.
+ */
+export const PROJECT_TEMPLATES: ProjectTemplate[] = [
+  {
+    value: 'spring-boot',
+    label: pc.green('Spring Boot'),
+    hint: 'start.spring.io — starters, auto-config, embedded server',
+    kind: 'springboot',
+    framework: 'Spring Boot',
+    buildTools: ['maven', 'gradle'],
+    languages: ['java', 'kotlin', 'groovy'],
+  },
+  {
+    value: 'maven',
+    label: pc.yellow('Plain Maven project'),
+    hint: 'no framework, jar or war',
+    kind: 'maven',
+    framework: 'Maven',
+    buildTools: ['maven'],
+    languages: ['java', 'kotlin', 'groovy'],
+  },
+  {
+    value: 'gradle',
+    label: pc.blue('Plain Gradle project'),
+    hint: 'no framework, Groovy or Kotlin DSL',
+    kind: 'gradle',
+    framework: 'Gradle',
+    buildTools: ['gradle'],
+    languages: ['java', 'kotlin', 'groovy'],
+  },
+  {
+    value: 'template',
+    label: pc.magenta('From a git template'),
+    hint: 'gh:owner/repo, gitlab:, bitbucket: or a git URL',
+    kind: 'template',
+    framework: 'Template',
+    buildTools: ['maven'],
+    languages: ['java'],
+  },
+  {
+    value: 'custom',
+    label: pc.dim('Others') + pc.dim(' — customize everything'),
+    hint: 'war packaging, multi-module, explicit coordinates',
+    kind: 'maven',
+    framework: 'Maven',
+    buildTools: ['maven', 'gradle'],
+    languages: ['java', 'kotlin', 'groovy'],
+  },
+];
+
+/** Human label for a source language. */
+function languageLabel(language: Language): string {
+  switch (language) {
+    case 'kotlin':
+      return pc.magenta('Kotlin');
+    case 'groovy':
+      return pc.green('Groovy');
+    default:
+      return pc.yellow('Java');
+  }
+}
 
 /** Fallback Spring Boot starters used when Initializr is unreachable. */
 const FALLBACK_BOOT_GROUPS: { name: string; values: { id: string; name: string; description?: string }[] }[] = [
@@ -140,383 +225,23 @@ function unwrap<T>(value: T | typeof p.CANCEL_SYMBOL): T {
   return value as T;
 }
 
-export interface WizardInput {
-  args: ParsedArgs;
-  /** Working directory the project directory is resolved against. */
-  cwd: string;
-}
-
 /**
- * Run the wizard and produce a complete configuration.
+ * Wrap a validator so that submitting an empty value is accepted.
  *
- * @returns the configuration, or `undefined` when the user cancelled.
+ * clack applies `defaultValue` in its `finalize` handler, which runs *after*
+ * `validate`. A plain required-field check therefore rejects an empty
+ * submission even though a default is configured — pressing Enter on the
+ * "Project name" prompt would report "project name is required" instead of
+ * accepting "demo". Passing an empty value through lets the default apply.
  */
-export async function runWizard(input: WizardInput): Promise<ProjectConfig | undefined> {
-  const { args, cwd } = input;
-  try {
-    p.intro('create-jvm — new JVM project');
-
-    // ------------------------------------------------------------ name
-    let name = args.name;
-    if (!name) {
-      name = unwrap(
-        await p.text({
-          message: 'Project name',
-          placeholder: 'demo',
-          defaultValue: 'demo',
-          validate: (value) => {
-            const result = validateProjectName(value ?? '');
-            return result.ok ? undefined : result.message;
-          },
-        }),
-      );
-    }
-    const targetDir = name === '.' ? cwd : path.resolve(cwd, name);
-
-    // ------------------------------------------------------------ kind
-    let kind: ProjectKind;
-    if (args.template) {
-      kind = 'template';
-    } else if (args.kind) {
-      kind = args.kind;
-    } else {
-      kind = unwrap(
-        await p.select<ProjectKind>({
-          message: 'Project type',
-          initialValue: 'springboot',
-          options: [
-            {
-              value: 'springboot',
-              label: 'Spring Boot',
-              hint: 'start.spring.io — starters, auto-config, embedded server',
-            },
-            { value: 'maven', label: 'Maven', hint: 'plain Maven project (jar or war)' },
-            { value: 'gradle', label: 'Gradle', hint: 'plain Gradle project, Groovy or Kotlin DSL' },
-          ],
-        }),
-      );
-    }
-
-    // ---------------------------------------------------------- template
-    if (kind === 'template') {
-      let template = args.template;
-      if (!template) {
-        template = unwrap(
-          await p.text({
-            message: 'Template',
-            placeholder: 'gh:owner/repo',
-            validate: (value) => (value?.trim() ? undefined : 'a template spec is required'),
-          }),
-        );
-      }
-      const coordinates = await askCoordinates(args, name);
-      p.note(summarise({ ...coordinates, kind, name, template }), 'Summary');
-      const git = await askGit(args);
-      const install = await askInstall(args);
-      return buildConfig({
-        kind,
-        name,
-        targetDir,
-        args,
-        coordinates,
-        template,
-        git,
-        install,
-      });
-    }
-
-    // -------------------------------------------------------- build tool
-    let buildTool: BuildTool;
-    if (kind === 'springboot') {
-      buildTool = args.buildTool ?? 'maven';
-      if (!args.buildTool) {
-        buildTool = unwrap(
-          await p.select<BuildTool>({
-            message: 'Build system',
-            initialValue: 'maven',
-            options: [
-              { value: 'maven', label: 'Maven', hint: 'pom.xml' },
-              { value: 'gradle', label: 'Gradle', hint: 'build.gradle / build.gradle.kts' },
-            ],
-          }),
-        );
-      }
-    } else if (kind === 'gradle') {
-      buildTool = 'gradle';
-    } else {
-      buildTool = 'maven';
-    }
-
-    // ----------------------------------------------------------- language
-    let language: Language;
-    if (args.language) {
-      language = args.language;
-    } else if (kind === 'springboot') {
-      language = unwrap(
-        await p.select<Language>({
-          message: 'Language',
-          initialValue: 'java',
-          options: [
-            { value: 'java', label: 'Java' },
-            { value: 'kotlin', label: 'Kotlin' },
-            { value: 'groovy', label: 'Groovy' },
-          ],
-        }),
-      );
-    } else {
-      language = unwrap(
-        await p.select<Language>({
-          message: 'Language',
-          initialValue: 'java',
-          options: [
-            { value: 'java', label: 'Java' },
-            { value: 'kotlin', label: 'Kotlin' },
-            { value: 'groovy', label: 'Groovy' },
-          ],
-        }),
-      );
-    }
-
-    // -------------------------------------------------------------- DSL
-    let dsl: GradleDsl = args.dsl ?? 'groovy';
-    if (buildTool === 'gradle' && !args.dsl) {
-      dsl = unwrap(
-        await p.select<GradleDsl>({
-          message: 'Gradle DSL',
-          initialValue: 'groovy',
-          options: [
-            { value: 'groovy', label: 'Groovy', hint: 'build.gradle' },
-            { value: 'kotlin', label: 'Kotlin', hint: 'build.gradle.kts' },
-          ],
-        }),
-      );
-    }
-
-    // -------------------------------------------------------- packaging
-    let packaging: Packaging = args.packaging ?? 'jar';
-    if (!args.packaging && kind !== 'springboot') {
-      packaging = unwrap(
-        await p.select<Packaging>({
-          message: 'Packaging',
-          initialValue: 'jar',
-          options: [
-            { value: 'jar', label: 'Jar', hint: 'library or executable application' },
-            { value: 'war', label: 'War', hint: 'deploy to a servlet container' },
-          ],
-        }),
-      );
-    }
-
-    // ------------------------------------------------------- java version
-    let javaVersion = args.javaVersion;
-    let metadata: InitializrMetadata | undefined;
-    if (kind === 'springboot') {
-      metadata = await loadMetadataQuietly();
-    }
-    if (!javaVersion) {
-      const choices = metadata
-        ? metadata.javaVersion.values.map((v) => v.id)
-        : [...JAVA_VERSIONS];
-      javaVersion = unwrap(
-        await p.select<string>({
-          message: 'Java version',
-          initialValue: metadata?.javaVersion.default ?? '21',
-          options: choices.map((value) => ({
-            value,
-            label: value,
-            ...(value === '25' ? { hint: 'current LTS' } : {}),
-          })),
-        }),
-      );
-    }
-
-    // ------------------------------------------------------- boot version
-    let bootVersion: string;
-    if (kind === 'springboot') {
-      if (args.bootVersion) {
-        bootVersion = args.bootVersion;
-      } else if (metadata) {
-        bootVersion = unwrap(
-          await p.select<string>({
-            message: 'Spring Boot version',
-            initialValue: metadata.bootVersion.default,
-            options: metadata.bootVersion.values.map((v) => ({ value: v.id, label: v.name })),
-          }),
-        );
-      } else {
-        bootVersion = DEFAULT_BOOT_VERSION;
-      }
-    } else {
-      bootVersion = args.bootVersion ?? DEFAULT_BOOT_VERSION;
-    }
-
-    // -------------------------------------------------------- coordinates
-    const coordinates = await askCoordinates(args, name);
-
-    // ------------------------------------------------------- dependencies
-    let bootDependencies: string[] = args.bootDependencies ?? [];
-    let dependencies: string[] = args.dependencies ?? [];
-    if (kind === 'springboot' && !args.bootDependencies) {
-      bootDependencies = await askBootDependencies(metadata);
-    } else if (kind !== 'springboot' && !args.dependencies) {
-      dependencies = await askCatalogDependencies();
-    }
-
-    // ------------------------------------------------------- multi module
-    let modules = args.modules ?? [];
-    let multiModule = args.multiModule ?? false;
-    if (!args.modules && !args.multiModule && kind !== 'springboot') {
-      const wantsModules = unwrap(
-        await p.confirm({
-          message: 'Create a multi-module project?',
-          initialValue: false,
-        }),
-      );
-      if (wantsModules) {
-        const raw = unwrap(
-          await p.text({
-            message: 'Module names',
-            placeholder: 'core, web',
-            validate: (value) => {
-              const names = (value ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-              if (names.length === 0) return 'enter at least one module name';
-              for (const candidate of names) {
-                const result = validateModuleName(candidate);
-                if (!result.ok) return `${candidate}: ${result.message}`;
-              }
-              return undefined;
-            },
-          }),
-        );
-        modules = raw.split(',').map((s) => s.trim()).filter(Boolean);
-        multiModule = true;
-      }
-    }
-
-    const git = await askGit(args);
-    const install = await askInstall(args);
-
-    const config = buildConfig({
-      kind,
-      name,
-      targetDir,
-      args,
-      coordinates,
-      buildTool,
-      dsl,
-      language,
-      packaging,
-      javaVersion,
-      bootVersion,
-      dependencies,
-      bootDependencies,
-      modules,
-      multiModule,
-      git,
-      install,
-    });
-
-    p.note(summarise(config), 'Summary');
-    return config;
-  } catch (error) {
-    if (error instanceof CancelledError) {
-      p.cancel('Operation cancelled.');
-      return undefined;
-    }
-    throw error;
-  }
-}
-
-/** Prompt for groupId / artifactId, defaulting from the project name. */
-async function askCoordinates(
-  args: ParsedArgs,
-  name: string,
-): Promise<{ groupId: string; artifactId: string; packageName: string; version: string; description: string }> {
-  const groupId =
-    args.groupId ??
-    unwrap(
-      await p.text({
-        message: 'Group id',
-        placeholder: 'com.example',
-        defaultValue: 'com.example',
-        validate: (value) => {
-          const result = validateGroupId(value ?? '');
-          return result.ok ? undefined : result.message;
-        },
-      }),
-    );
-
-  const artifactId =
-    args.artifactId ??
-    unwrap(
-      await p.text({
-        message: 'Artifact id',
-        placeholder: deriveArtifactId(name),
-        defaultValue: deriveArtifactId(name),
-        validate: (value) => {
-          const result = validateArtifactId(value ?? '');
-          return result.ok ? undefined : result.message;
-        },
-      }),
-    );
-
-  const packageName = args.packageName ?? derivePackageName(groupId, artifactId);
-
-  return {
-    groupId,
-    artifactId,
-    packageName,
-    version: args.version ?? '0.0.1-SNAPSHOT',
-    description: args.description ?? '',
+function defaultable(
+  validator: (value: string) => { ok: boolean; message?: string },
+): (value: string | undefined) => string | undefined {
+  return (value) => {
+    if (value === undefined || value.trim() === '') return undefined;
+    const result = validator(value);
+    return result.ok ? undefined : result.message;
   };
-}
-
-/** Fetch Initializr metadata, returning `undefined` instead of throwing. */
-async function loadMetadataQuietly(): Promise<InitializrMetadata | undefined> {
-  try {
-    return await fetchMetadata();
-  } catch {
-    p.log.warn('Could not reach Spring Initializr; falling back to a built-in starter list.');
-    return undefined;
-  }
-}
-
-/** Ask which Spring Boot starters to include. */
-async function askBootDependencies(metadata: InitializrMetadata | undefined): Promise<string[]> {
-  const groups: Record<string, { value: string; label: string; hint?: string }[]> = {};
-
-  if (metadata) {
-    for (const group of metadata.dependencies.values) {
-      // Skip vendor-specific groups that are rarely wanted in a fresh project.
-      if (/Tanzu|Azure|Google Cloud/i.test(group.name)) continue;
-      const options = group.values.map((dep) => ({
-        value: dep.id,
-        label: dep.name,
-        ...(dep.description ? { hint: dep.description.slice(0, 90) } : {}),
-      }));
-      if (options.length > 0) groups[group.name] = options;
-    }
-  } else {
-    for (const group of FALLBACK_BOOT_GROUPS) {
-      groups[group.name] = group.values.map((dep) => ({
-        value: dep.id,
-        label: dep.name,
-        ...(dep.description ? { hint: dep.description } : {}),
-      }));
-    }
-  }
-
-  const selected = unwrap(
-    await p.groupMultiselect<string>({
-      message: 'Dependencies',
-      options: groups,
-      required: false,
-      maxItems: 12,
-    }),
-  );
-
-  for (const warning of persistenceWarnings(selected)) p.log.warn(warning);
-  return selected;
 }
 
 /** Starters that need a JDBC driver on the classpath to start up. */
@@ -561,6 +286,419 @@ export function persistenceWarnings(selected: string[]): string[] {
   return [];
 }
 
+export interface WizardInput {
+  args: ParsedArgs;
+  /** Working directory the project directory is resolved against. */
+  cwd: string;
+}
+
+/**
+ * Run the wizard and produce a complete configuration.
+ *
+ * @returns the configuration, or `undefined` when the user cancelled.
+ */
+export async function runWizard(input: WizardInput): Promise<ProjectConfig | undefined> {
+  const { args, cwd } = input;
+  try {
+    p.intro(pc.bgCyan(pc.black(' create-jvm ')) + pc.dim(' the JVM project scaffolder'));
+
+    // --------------------------------------------------------------- name
+    const name =
+      args.name ??
+      unwrap(
+        await p.text({
+          message: 'Project name',
+          placeholder: 'demo',
+          defaultValue: 'demo',
+          validate: defaultable((value) => validateProjectName(value)),
+        }),
+      );
+
+    // --------------------------------------------------------------- type
+    const template =
+      args.template !== undefined
+        ? PROJECT_TEMPLATES.find((t) => t.value === 'template')!
+        : args.kind !== undefined
+          ? matchTemplateFromArgs(args)
+          : unwrap(
+              await p.select<ProjectTemplate>({
+                message: 'Select a project type',
+                initialValue: PROJECT_TEMPLATES[0]!,
+                options: PROJECT_TEMPLATES.map((t) => ({
+                  value: t,
+                  label: t.label,
+                  hint: t.hint,
+                })),
+                maxItems: PROJECT_TEMPLATES.length + 2,
+              }),
+            );
+
+    const custom = template.value === 'custom';
+
+    // ------------------------------------------------------------- target
+    const targetDir = name === '.' ? cwd : path.resolve(cwd, name);
+
+    // ------------------------------------------------------ template spec
+    let templateSpec = args.template;
+    if (template.kind === 'template' && !templateSpec) {
+      templateSpec = unwrap(
+        await p.text({
+          message: 'Template',
+          placeholder: 'gh:owner/repo',
+          validate: (value) => (value?.trim() ? undefined : 'a template spec is required'),
+        }),
+      );
+    }
+
+    // --------------------------------------------------------- boot setup
+    let metadata: InitializrMetadata | undefined;
+    if (template.kind === 'springboot') metadata = await loadMetadataQuietly();
+
+    // ---------------------------------------------------------- build tool
+    // Asked separately from the project type, matching the IDE wizard. Skipped
+    // when the framework only supports one build system.
+    let buildTool: BuildTool;
+    if (template.buildTools.length === 1) {
+      buildTool = template.buildTools[0]!;
+    } else if (args.buildTool) {
+      buildTool = args.buildTool;
+    } else {
+      buildTool = unwrap(
+        await p.select<BuildTool>({
+          message: 'Select a build system',
+          initialValue: template.buildTools[0]!,
+          options: template.buildTools.map((tool) => ({
+            value: tool,
+            label: tool === 'maven' ? pc.yellow('Maven') : pc.blue('Gradle'),
+            hint: tool === 'maven' ? 'pom.xml' : 'build.gradle / build.gradle.kts',
+          })),
+        }),
+      );
+    }
+
+    // ---------------------------------------------------------------- DSL
+    let dsl: GradleDsl = args.dsl ?? 'groovy';
+    if (buildTool === 'gradle' && !args.dsl) {
+      dsl = unwrap(
+        await p.select<GradleDsl>({
+          message: 'Select a Gradle DSL',
+          initialValue: 'groovy',
+          options: [
+            { value: 'groovy', label: 'Groovy', hint: 'build.gradle' },
+            { value: 'kotlin', label: 'Kotlin', hint: 'build.gradle.kts' },
+          ],
+        }),
+      );
+    }
+
+    // ------------------------------------------------------------ language
+    let language: Language;
+    if (template.kind === 'template') {
+      language = args.language ?? 'java';
+    } else if (template.languages.length === 1) {
+      language = template.languages[0]!;
+    } else if (args.language) {
+      language = args.language;
+    } else {
+      language = unwrap(
+        await p.select<Language>({
+          message: 'Select a language',
+          initialValue: template.languages[0]!,
+          options: template.languages.map((value) => ({
+            value,
+            label: languageLabel(value),
+            ...(value === 'java' ? { hint: 'the default choice' } : {}),
+          })),
+        }),
+      );
+    }
+
+    // --------------------------------------------------------- coordinates
+    // Derived by default, exactly like create-vite: no coordinate prompts on
+    // the common path. `custom` asks for them instead.
+    const artifactId = args.artifactId ?? deriveArtifactId(name);
+    const groupId = args.groupId ?? 'com.example';
+    const coordinates = custom
+      ? await askCoordinates(args, name)
+      : {
+          groupId,
+          artifactId,
+          packageName: args.packageName ?? derivePackageName(groupId, artifactId),
+          version: args.version ?? '0.0.1-SNAPSHOT',
+          description: args.description ?? '',
+        };
+
+    // ---------------------------------------------------------- java / boot
+    let javaVersion = args.javaVersion ?? metadata?.javaVersion.default ?? '21';
+    let bootVersion = args.bootVersion ?? metadata?.bootVersion.default ?? DEFAULT_BOOT_VERSION;
+    if (custom && !args.javaVersion) {
+      const choices = metadata ? metadata.javaVersion.values.map((v) => v.id) : [...JAVA_VERSIONS];
+      javaVersion = unwrap(
+        await p.select<string>({
+          message: 'Java version',
+          initialValue: metadata?.javaVersion.default ?? '21',
+          options: choices.map((value) => ({
+            value,
+            label: value,
+            ...(value === '25' ? { hint: 'current LTS' } : {}),
+          })),
+        }),
+      );
+    }
+    if (custom && template.kind === 'springboot' && !args.bootVersion && metadata) {
+      bootVersion = unwrap(
+        await p.select<string>({
+          message: 'Spring Boot version',
+          initialValue: metadata.bootVersion.default,
+          options: metadata.bootVersion.values.map((v) => ({ value: v.id, label: v.name })),
+        }),
+      );
+    }
+
+    // --------------------------------------------------------- dependencies
+    let bootDependencies: string[] = args.bootDependencies ?? [];
+    let dependencies: string[] = args.dependencies ?? [];
+    if (template.kind === 'springboot' && args.bootDependencies === undefined) {
+      bootDependencies = await askBootDependencies(metadata);
+    } else if (template.kind !== 'springboot' && template.kind !== 'template' && args.dependencies === undefined) {
+      dependencies = await askCatalogDependencies();
+    }
+
+    // ------------------------------------------------------------- modules
+    let modules = args.modules ?? [];
+    let multiModule = args.multiModule ?? false;
+    if (custom && template.kind !== 'springboot' && args.modules === undefined && !args.multiModule) {
+      const wantsModules = unwrap(
+        await p.confirm({ message: 'Create a multi-module project?', initialValue: false }),
+      );
+      if (wantsModules) {
+        const raw = unwrap(
+          await p.text({
+            message: 'Module names',
+            placeholder: 'core, web',
+            validate: (value) => {
+              const names = (value ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+              if (names.length === 0) return 'enter at least one module name';
+              for (const candidate of names) {
+                const result = validateModuleName(candidate);
+                if (!result.ok) return `${candidate}: ${result.message}`;
+              }
+              return undefined;
+            },
+          }),
+        );
+        modules = raw.split(',').map((s) => s.trim()).filter(Boolean);
+        multiModule = true;
+      }
+    }
+
+    // ---------------------------------------------------- packaging (custom)
+    let packaging: Packaging = args.packaging ?? 'jar';
+    if (custom && template.kind !== 'springboot' && !args.packaging) {
+      packaging = unwrap(
+        await p.select<Packaging>({
+          message: 'Packaging',
+          initialValue: 'jar',
+          options: [
+            { value: 'jar', label: 'Jar', hint: 'library or executable application' },
+            { value: 'war', label: 'War', hint: 'deploy to a servlet container' },
+          ],
+        }),
+      );
+    }
+
+    // ------------------------------------------------------- git / install
+    const git = args.git ?? true;
+    const install = args.install ?? false;
+
+    // "Others" starts from the Maven entry but may end up on Gradle, so the
+    // generator is chosen from the build tool that was actually picked.
+    const kind: ProjectKind =
+      template.value === 'custom' ? (buildTool === 'gradle' ? 'gradle' : 'maven') : template.kind;
+
+    const config: ProjectConfig = {
+      kind,
+      name,
+      targetDir,
+      buildTool,
+      dsl,
+      language,
+      packaging,
+      groupId: coordinates.groupId,
+      artifactId: coordinates.artifactId,
+      version: coordinates.version,
+      javaVersion,
+      kotlinVersion: args.kotlinVersion ?? VERSIONS.kotlin,
+      bootVersion,
+      packageName: coordinates.packageName,
+      description: coordinates.description,
+      dependencies,
+      bootDependencies,
+      multiModule,
+      modules,
+      shade: false,
+      ...(templateSpec ? { template: templateSpec } : {}),
+      git,
+      install,
+      dryRun: args.dryRun ?? false,
+      force: args.force ?? false,
+    };
+
+    p.note(summarise(config), 'Summary');
+    p.outro(
+      `${pc.green('Ready.')} ${pc.dim('Generating')} ${pc.cyan(config.name)}${pc.dim('…')}`,
+    );
+    return config;
+  } catch (error) {
+    if (error instanceof CancelledError) {
+      p.cancel('Operation cancelled.');
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/** Pick the template entry matching flags already supplied. */
+function matchTemplateFromArgs(args: ParsedArgs): ProjectTemplate {
+  const kind = args.kind ?? 'maven';
+  const found = PROJECT_TEMPLATES.find((t) => t.kind === kind);
+  if (found) return found;
+  return {
+    value: `custom-${kind}`,
+    label: kind,
+    hint: '',
+    kind,
+    framework: kind,
+    buildTools: args.buildTool ? [args.buildTool] : ['maven', 'gradle'],
+    languages: ['java', 'kotlin', 'groovy'],
+  };
+}
+
+/** Prompt for groupId / artifactId, defaulting from the project name. */
+async function askCoordinates(
+  args: ParsedArgs,
+  name: string,
+): Promise<{ groupId: string; artifactId: string; packageName: string; version: string; description: string }> {
+  const groupId =
+    args.groupId ??
+    unwrap(
+      await p.text({
+        message: 'Group id',
+        placeholder: 'com.example',
+        defaultValue: 'com.example',
+        validate: defaultable((value) => validateGroupId(value)),
+      }),
+    );
+
+  const artifactId =
+    args.artifactId ??
+    unwrap(
+      await p.text({
+        message: 'Artifact id',
+        placeholder: deriveArtifactId(name),
+        defaultValue: deriveArtifactId(name),
+        validate: defaultable((value) => validateArtifactId(value)),
+      }),
+    );
+
+  return {
+    groupId,
+    artifactId,
+    packageName: args.packageName ?? derivePackageName(groupId, artifactId),
+    version: args.version ?? '0.0.1-SNAPSHOT',
+    description: args.description ?? '',
+  };
+}
+
+/** Fetch Initializr metadata, returning `undefined` instead of throwing. */
+async function loadMetadataQuietly(): Promise<InitializrMetadata | undefined> {
+  try {
+    return await fetchMetadata();
+  } catch {
+    p.log.warn('Could not reach Spring Initializr; falling back to a built-in starter list.');
+    return undefined;
+  }
+}
+
+/**
+ * Preferred display order for Initializr dependency groups.
+ *
+ * Initializr lists "Developer Tools" first, whose first entry is GraalVM Native
+ * Support. Since the picker opens on the first option of the first group, that
+ * makes the most likely accidental selection an exotic one. Ordering the groups
+ * by how often they are actually wanted puts Spring Web under the cursor.
+ */
+const GROUP_ORDER = [
+  'Web',
+  'SQL',
+  'Security',
+  'NoSQL',
+  'I/O',
+  'Messaging',
+  'Ops',
+  'Observability',
+  'Template Engines',
+  'Testing',
+  'Developer Tools',
+];
+
+/** Sort dependency groups into the preferred order, unknown groups last. */
+function orderGroups<T>(groups: [string, T][]): [string, T][] {
+  const rank = (name: string): number => {
+    const index = GROUP_ORDER.indexOf(name);
+    return index === -1 ? GROUP_ORDER.length : index;
+  };
+  return [...groups].sort((a, b) => {
+    const diff = rank(a[0]) - rank(b[0]);
+    // Preserve Initializr's own ordering within the same rank.
+    return diff !== 0 ? diff : groups.findIndex((g) => g[0] === a[0]) - groups.findIndex((g) => g[0] === b[0]);
+  });
+}
+
+/** Ask which Spring Boot starters to include. */
+async function askBootDependencies(metadata: InitializrMetadata | undefined): Promise<string[]> {
+  const collected: [string, { value: string; label: string; hint?: string }[]][] = [];
+
+  if (metadata) {
+    for (const group of metadata.dependencies.values) {
+      // Skip vendor-specific groups that are rarely wanted in a fresh project.
+      if (/Tanzu|Azure|Google Cloud/i.test(group.name)) continue;
+      const options = group.values.map((dep) => ({
+        value: dep.id,
+        label: dep.name,
+        ...(dep.description ? { hint: dep.description.slice(0, 90) } : {}),
+      }));
+      if (options.length > 0) collected.push([group.name, options]);
+    }
+  } else {
+    for (const group of FALLBACK_BOOT_GROUPS) {
+      collected.push([
+        group.name,
+        group.values.map((dep) => ({
+          value: dep.id,
+          label: dep.name,
+          ...(dep.description ? { hint: dep.description } : {}),
+        })),
+      ]);
+    }
+  }
+
+  const groups: Record<string, { value: string; label: string; hint?: string }[]> = {};
+  for (const [groupName, options] of orderGroups(collected)) groups[groupName] = options;
+
+  const selected = unwrap(
+    await p.groupMultiselect<string>({
+      message: 'Select dependencies',
+      options: groups,
+      required: false,
+      maxItems: 12,
+    }),
+  );
+
+  for (const warning of persistenceWarnings(selected)) p.log.warn(warning);
+  return selected;
+}
+
 /** Ask which catalog dependencies to include in a plain Maven/Gradle project. */
 async function askCatalogDependencies(): Promise<string[]> {
   const groups: Record<string, { value: string; label: string; hint?: string }[]> = {};
@@ -574,7 +712,7 @@ async function askCatalogDependencies(): Promise<string[]> {
 
   const selected = unwrap(
     await p.groupMultiselect<string>({
-      message: 'Dependencies',
+      message: 'Select dependencies',
       options: groups,
       required: false,
       initialValues: ['junit5'],
@@ -584,95 +722,17 @@ async function askCatalogDependencies(): Promise<string[]> {
   return selected;
 }
 
-/** Ask whether to initialise a git repository. */
-async function askGit(args: ParsedArgs): Promise<boolean> {
-  if (args.git !== undefined) return args.git;
-  return unwrap(
-    await p.confirm({
-      message: 'Initialise a git repository?',
-      initialValue: true,
-    }),
-  );
-}
-
-/** Ask whether to run a build after generating. */
-async function askInstall(args: ParsedArgs): Promise<boolean> {
-  if (args.install !== undefined) return args.install;
-  return unwrap(
-    await p.confirm({
-      message: 'Run a build now to verify the project?',
-      initialValue: false,
-    }),
-  );
-}
-
-interface BuildConfigInput {
-  kind: ProjectKind;
-  name: string;
-  targetDir: string;
-  args: ParsedArgs;
-  coordinates: { groupId: string; artifactId: string; packageName: string; version: string; description: string };
-  buildTool?: BuildTool;
-  dsl?: GradleDsl;
-  language?: Language;
-  packaging?: Packaging;
-  javaVersion?: string;
-  bootVersion?: string;
-  dependencies?: string[];
-  bootDependencies?: string[];
-  modules?: string[];
-  multiModule?: boolean;
-  template?: string;
-  git: boolean;
-  install: boolean;
-}
-
-/** Assemble a ProjectConfig from wizard answers. */
-function buildConfig(input: BuildConfigInput): ProjectConfig {
-  const { args, coordinates } = input;
-  const kind = input.kind;
-  const buildTool: BuildTool =
-    input.buildTool ?? (kind === 'gradle' ? 'gradle' : kind === 'maven' ? 'maven' : 'maven');
-
-  return {
-    kind,
-    name: input.name,
-    targetDir: input.targetDir,
-    buildTool,
-    dsl: input.dsl ?? 'groovy',
-    language: input.language ?? 'java',
-    packaging: input.packaging ?? 'jar',
-    groupId: coordinates.groupId,
-    artifactId: coordinates.artifactId,
-    version: coordinates.version,
-    javaVersion: input.javaVersion ?? args.javaVersion ?? '21',
-    kotlinVersion: args.kotlinVersion ?? VERSIONS.kotlin,
-    bootVersion: input.bootVersion ?? args.bootVersion ?? '4.1.1',
-    packageName: coordinates.packageName,
-    description: coordinates.description,
-    dependencies: input.dependencies ?? args.dependencies ?? [],
-    bootDependencies: input.bootDependencies ?? args.bootDependencies ?? [],
-    multiModule: input.multiModule ?? false,
-    modules: input.modules ?? [],
-    shade: false,
-    ...(input.template ? { template: input.template } : {}),
-    git: input.git,
-    install: input.install,
-    dryRun: args.dryRun ?? false,
-    force: args.force ?? false,
-  };
-}
-
 /** Human readable summary shown before generating. */
-function summarise(config: Partial<ProjectConfig>): string {
+function summarise(config: ProjectConfig): string {
   const lines: string[] = [];
   const push = (label: string, value: string | undefined): void => {
     if (value) lines.push(`${label.padEnd(14)} ${value}`);
   };
   push('Project', config.name);
-  push('Type', config.kind);
-  if (config.template) push('Template', config.template);
-  if (config.kind !== 'template') {
+  if (config.template) {
+    push('Template', config.template);
+  } else {
+    push('Type', config.kind);
     push('Build', config.buildTool === 'gradle' ? `Gradle (${config.dsl} DSL)` : 'Maven');
     push('Language', config.language);
     push('Java', config.javaVersion);
@@ -681,15 +741,11 @@ function summarise(config: Partial<ProjectConfig>): string {
   push('Group', config.groupId);
   push('Artifact', config.artifactId);
   push('Package', config.packageName);
-  if (config.modules && config.modules.length > 0) push('Modules', config.modules.join(', '));
-  if (config.bootDependencies && config.bootDependencies.length > 0) {
-    push('Starters', config.bootDependencies.join(', '));
-  }
-  if (config.dependencies && config.dependencies.length > 0) {
-    push('Dependencies', config.dependencies.join(', '));
-  }
+  if (config.modules.length > 0) push('Modules', config.modules.join(', '));
+  if (config.bootDependencies.length > 0) push('Starters', config.bootDependencies.join(', '));
+  if (config.dependencies.length > 0) push('Dependencies', config.dependencies.join(', '));
   return lines.join('\n');
 }
 
-/** Expose the catalog size for the wizard intro. */
+/** Expose the catalog size for callers that report on it. */
 export const wizardCatalogSize = CATALOG.length;
