@@ -1,6 +1,6 @@
 {
   "name": "create-jvm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Scaffold Maven, Gradle and Spring Boot projects from the terminal — the IntelliJ IDEA New Project wizard as a CLI.",
   "type": "module",
   "bin": {
