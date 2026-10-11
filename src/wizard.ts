@@ -414,38 +414,49 @@ export async function runWizard(input: WizardInput): Promise<ProjectConfig | und
     // Every prompt carries the value that would have been derived anyway, so
     // accepting the defaults is a plain sequence of Enter presses — but the
     // choice is always available rather than hidden behind "Others".
+    // A git template is copied verbatim, so its build coordinates come from the
+    // template itself. Asking for them would be pure noise, so the prompts are
+    // skipped and the values are derived for the summary only.
+    const isTemplate = template.kind === 'template';
+
     const artifactId =
       args.artifactId ??
-      unwrap(
-        await p.text({
-          message: 'Artifact id',
-          placeholder: deriveArtifactId(name),
-          defaultValue: deriveArtifactId(name),
-          validate: defaultable((value) => validateArtifactId(value)),
-        }),
-      );
+      (isTemplate
+        ? deriveArtifactId(name)
+        : unwrap(
+            await p.text({
+              message: 'Artifact id',
+              placeholder: deriveArtifactId(name),
+              defaultValue: deriveArtifactId(name),
+              validate: defaultable((value) => validateArtifactId(value)),
+            }),
+          ));
 
     const groupId =
       args.groupId ??
-      unwrap(
-        await p.text({
-          message: 'Group id',
-          placeholder: 'com.example',
-          defaultValue: 'com.example',
-          validate: defaultable((value) => validateGroupId(value)),
-        }),
-      );
+      (isTemplate
+        ? 'com.example'
+        : unwrap(
+            await p.text({
+              message: 'Group id',
+              placeholder: 'com.example',
+              defaultValue: 'com.example',
+              validate: defaultable((value) => validateGroupId(value)),
+            }),
+          ));
 
     const packageName =
       args.packageName ??
-      unwrap(
-        await p.text({
-          message: 'Package name',
-          placeholder: derivePackageName(groupId, artifactId),
-          defaultValue: derivePackageName(groupId, artifactId),
-          validate: defaultable((value) => validateGroupId(value)),
-        }),
-      );
+      (isTemplate
+        ? derivePackageName(groupId, artifactId)
+        : unwrap(
+            await p.text({
+              message: 'Package name',
+              placeholder: derivePackageName(groupId, artifactId),
+              defaultValue: derivePackageName(groupId, artifactId),
+              validate: defaultable((value) => validateGroupId(value)),
+            }),
+          ));
 
     const coordinates = {
       groupId,
