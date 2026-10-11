@@ -18,7 +18,6 @@ npx create-jvm my-app
 │  ○ Maven
 │  ○ Gradle
 │  ○ Git template
-│  ○ Others
 │  ↑/↓ to navigate • Enter: confirm
 │
 ◆  Select a build system
@@ -30,9 +29,31 @@ npx create-jvm my-app
 │  ○ Kotlin
 │  ○ Groovy
 │
+◇  Artifact id
+│  shop-api
+│
+◇  Group id
+│  com.example
+│
+◇  Package name
+│  com.example.shopapi
+│
+◆  Select packaging
+│  ● Jar
+│  ○ War
+│
 ◆  Select a configuration file format
 │  ● Properties — application.properties
 │  ○ YAML — application.yaml
+│
+◆  Select a Java version
+│  ● 17
+│  ○ 21
+│  ○ 25
+│
+◆  Select a Spring Boot version
+│  ● 4.1.1
+│  ○ 4.0.8
 │
 ◆  Select dependencies
 │  ...
@@ -40,10 +61,11 @@ npx create-jvm my-app
 └  Ready. Generating shop-api…
 ```
 
-The build system and language are asked as separate steps, in the same order the
-IDE wizard uses, so the type list stays short. Coordinates (`groupId`,
-`artifactId`, package, Java release) are derived from the project name and only
-asked for under **Others**.
+This mirrors the **Project Metadata** panel on start.spring.io: group, artifact,
+package name, packaging, configuration format, Java version and Boot version are
+all selectable. Each prompt is pre-filled with the value that would have been
+derived from the project name, so the defaults are one Enter press each — and
+passing the matching flag skips the prompt entirely.
 
 ## Why
 

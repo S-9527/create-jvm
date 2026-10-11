@@ -92,7 +92,12 @@ export function initializrQuery(config: ProjectConfig): URLSearchParams {
   params.set('groupId', config.groupId);
   params.set('artifactId', config.artifactId);
   params.set('version', config.version);
-  params.set('name', config.name);
+  // Initializr derives the application class name from `name`, while the local
+  // Maven/Gradle generators derive it from `artifactId`. Sending the artifactId
+  // here keeps every generator producing the same class name for the same
+  // configuration, so `--artifact-id orders` yields OrdersApplication whichever
+  // build system is chosen.
+  params.set('name', config.artifactId);
   params.set('description', config.description);
   params.set('packageName', config.packageName);
   params.set('packaging', config.packaging);

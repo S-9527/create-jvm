@@ -2,10 +2,14 @@
  * The interactive wizard.
  *
  * Shaped like `create-vite`: ask for a name, present one flat list of project
- * types, ask which dependencies to include, and then offer an opt-in
- * "customize" step for the details most people never change (coordinates, Java
- * release, modules). Anything already supplied on the command line is skipped,
- * so `--spring-boot --dep web` only prompts for what is still missing.
+ * types, then walk the "Project Metadata" panel start.spring.io shows — build
+ * system, language, group, artifact, package name, packaging, configuration
+ * format, Java and Boot version — and finally the dependencies.
+ *
+ * Every metadata prompt is pre-filled with the value that would have been
+ * derived anyway, so the defaults are one Enter press each. Anything already
+ * supplied on the command line is skipped, so `--spring-boot --dep web` only
+ * prompts for what is still missing.
  */
 
 import path from 'node:path';
@@ -86,14 +90,6 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     kind: 'template',
     buildTools: ['maven'],
     languages: ['java'],
-  },
-  {
-    value: 'custom',
-    label: pc.dim('Others'),
-    hint: 'war packaging, multi-module, explicit coordinates',
-    kind: 'maven',
-    buildTools: ['maven', 'gradle'],
-    languages: ['java', 'kotlin', 'groovy'],
   },
 ];
 
@@ -334,8 +330,6 @@ export async function runWizard(input: WizardInput): Promise<ProjectConfig | und
               }),
             );
 
-    const custom = template.value === 'custom';
-
     // ------------------------------------------------------------- target
     const targetDir = name === '.' ? cwd : path.resolve(cwd, name);
 
@@ -414,27 +408,88 @@ export async function runWizard(input: WizardInput): Promise<ProjectConfig | und
       );
     }
 
-    // --------------------------------------------------------- coordinates
-    // Derived by default, exactly like create-vite: no coordinate prompts on
-    // the common path. `custom` asks for them instead.
-    const artifactId = args.artifactId ?? deriveArtifactId(name);
-    const groupId = args.groupId ?? 'com.example';
-    const coordinates = custom
-      ? await askCoordinates(args, name)
-      : {
-          groupId,
-          artifactId,
-          packageName: args.packageName ?? derivePackageName(groupId, artifactId),
-          version: args.version ?? '0.0.1-SNAPSHOT',
-          description: args.description ?? '',
-        };
+    // ------------------------------------------------------- project metadata
+    // Mirrors start.spring.io's "Project Metadata" panel: group, artifact,
+    // package name, packaging, configuration format, Java and Boot version.
+    // Every prompt carries the value that would have been derived anyway, so
+    // accepting the defaults is a plain sequence of Enter presses — but the
+    // choice is always available rather than hidden behind "Others".
+    const artifactId =
+      args.artifactId ??
+      unwrap(
+        await p.text({
+          message: 'Artifact id',
+          placeholder: deriveArtifactId(name),
+          defaultValue: deriveArtifactId(name),
+          validate: defaultable((value) => validateArtifactId(value)),
+        }),
+      );
 
-    // ---------------------------------------------------------- java / boot
+    const groupId =
+      args.groupId ??
+      unwrap(
+        await p.text({
+          message: 'Group id',
+          placeholder: 'com.example',
+          defaultValue: 'com.example',
+          validate: defaultable((value) => validateGroupId(value)),
+        }),
+      );
+
+    const packageName =
+      args.packageName ??
+      unwrap(
+        await p.text({
+          message: 'Package name',
+          placeholder: derivePackageName(groupId, artifactId),
+          defaultValue: derivePackageName(groupId, artifactId),
+          validate: defaultable((value) => validateGroupId(value)),
+        }),
+      );
+
+    const coordinates = {
+      groupId,
+      artifactId,
+      packageName,
+      version: args.version ?? '0.0.1-SNAPSHOT',
+      description: args.description ?? '',
+    };
+
+    // Packaging applies to Boot and plain builds alike.
+    let packaging: Packaging = args.packaging ?? 'jar';
+    if (!args.packaging && template.kind !== 'template') {
+      packaging = unwrap(
+        await p.select<Packaging>({
+          message: 'Select packaging',
+          initialValue: 'jar',
+          options: [
+            { value: 'jar', label: 'Jar', hint: 'library or executable application' },
+            { value: 'war', label: 'War', hint: 'deploy to a servlet container' },
+          ],
+        }),
+      );
+    }
+
+    // Configuration format only exists for Spring Boot; it selects between
+    // application.properties and application.yaml.
+    let configFormat: ConfigFormat = args.configFormat ?? 'properties';
+    if (template.kind === 'springboot' && !args.configFormat) {
+      configFormat = unwrap(
+        await p.select<ConfigFormat>({
+          message: 'Select a configuration file format',
+          initialValue: 'properties',
+          options: [
+            { value: 'properties', label: 'Properties', hint: 'application.properties' },
+            { value: 'yaml', label: 'YAML', hint: 'application.yaml' },
+          ],
+        }),
+      );
+    }
+
+    // Java release. For Boot projects the choices come from Initializr so they
+    // always match what the service will accept.
     let javaVersion = args.javaVersion ?? metadata?.javaVersion.default ?? '21';
-    let bootVersion = args.bootVersion ?? metadata?.bootVersion.default ?? DEFAULT_BOOT_VERSION;
-    // Java and Boot versions are worth asking about (the IDE shows both), but
-    // only under "Others": the defaults are right for almost every project.
-    if (custom && !args.javaVersion) {
+    if (!args.javaVersion && template.kind !== 'template') {
       const choices = metadata ? metadata.javaVersion.values.map((v) => v.id) : [...JAVA_VERSIONS];
       javaVersion = unwrap(
         await p.select<string>({
@@ -448,29 +503,16 @@ export async function runWizard(input: WizardInput): Promise<ProjectConfig | und
         }),
       );
     }
-    if (custom && template.kind === 'springboot' && !args.bootVersion && metadata) {
+
+    // Spring Boot release, including milestones and snapshots when Initializr
+    // advertises them.
+    let bootVersion = args.bootVersion ?? metadata?.bootVersion.default ?? DEFAULT_BOOT_VERSION;
+    if (template.kind === 'springboot' && !args.bootVersion && metadata) {
       bootVersion = unwrap(
         await p.select<string>({
           message: 'Select a Spring Boot version',
           initialValue: metadata.bootVersion.default,
           options: metadata.bootVersion.values.map((v) => ({ value: v.id, label: v.name })),
-        }),
-      );
-    }
-
-    // --------------------------------------------------- config file format
-    // Only Spring Boot projects have this choice; it selects between
-    // application.properties and application.yaml.
-    let configFormat: ConfigFormat = args.configFormat ?? 'properties';
-    if (template.kind === 'springboot' && !args.configFormat) {
-      configFormat = unwrap(
-        await p.select<ConfigFormat>({
-          message: 'Select a configuration file format',
-          initialValue: 'properties',
-          options: [
-            { value: 'properties', label: 'Properties', hint: 'application.properties' },
-            { value: 'yaml', label: 'YAML', hint: 'application.yaml' },
-          ],
         }),
       );
     }
@@ -487,7 +529,7 @@ export async function runWizard(input: WizardInput): Promise<ProjectConfig | und
     // ------------------------------------------------------------- modules
     let modules = args.modules ?? [];
     let multiModule = args.multiModule ?? false;
-    if (custom && template.kind !== 'springboot' && args.modules === undefined && !args.multiModule) {
+    if (template.kind !== 'springboot' && template.kind !== 'template' && args.modules === undefined && !args.multiModule) {
       const wantsModules = unwrap(
         await p.confirm({ message: 'Create a multi-module project?', initialValue: false }),
       );
@@ -512,29 +554,11 @@ export async function runWizard(input: WizardInput): Promise<ProjectConfig | und
       }
     }
 
-    // ---------------------------------------------------- packaging (custom)
-    let packaging: Packaging = args.packaging ?? 'jar';
-    if (custom && template.kind !== 'springboot' && !args.packaging) {
-      packaging = unwrap(
-        await p.select<Packaging>({
-          message: 'Packaging',
-          initialValue: 'jar',
-          options: [
-            { value: 'jar', label: 'Jar', hint: 'library or executable application' },
-            { value: 'war', label: 'War', hint: 'deploy to a servlet container' },
-          ],
-        }),
-      );
-    }
-
     // ------------------------------------------------------- git / install
     const git = args.git ?? true;
     const install = args.install ?? false;
 
-    // "Others" starts from the Maven entry but may end up on Gradle, so the
-    // generator is chosen from the build tool that was actually picked.
-    const kind: ProjectKind =
-      template.value === 'custom' ? (buildTool === 'gradle' ? 'gradle' : 'maven') : template.kind;
+    const kind: ProjectKind = template.kind;
 
     const config: ProjectConfig = {
       kind,
@@ -591,42 +615,6 @@ function matchTemplateFromArgs(args: ParsedArgs): ProjectTemplate {
     kind,
     buildTools: args.buildTool ? [args.buildTool] : ['maven', 'gradle'],
     languages: ['java', 'kotlin', 'groovy'],
-  };
-}
-
-/** Prompt for groupId / artifactId, defaulting from the project name. */
-async function askCoordinates(
-  args: ParsedArgs,
-  name: string,
-): Promise<{ groupId: string; artifactId: string; packageName: string; version: string; description: string }> {
-  const groupId =
-    args.groupId ??
-    unwrap(
-      await p.text({
-        message: 'Group id',
-        placeholder: 'com.example',
-        defaultValue: 'com.example',
-        validate: defaultable((value) => validateGroupId(value)),
-      }),
-    );
-
-  const artifactId =
-    args.artifactId ??
-    unwrap(
-      await p.text({
-        message: 'Artifact id',
-        placeholder: deriveArtifactId(name),
-        defaultValue: deriveArtifactId(name),
-        validate: defaultable((value) => validateArtifactId(value)),
-      }),
-    );
-
-  return {
-    groupId,
-    artifactId,
-    packageName: args.packageName ?? derivePackageName(groupId, artifactId),
-    version: args.version ?? '0.0.1-SNAPSHOT',
-    description: args.description ?? '',
   };
 }
 
