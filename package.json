@@ -1,0 +1,60 @@
+{
+  "name": "create-jvm",
+  "version": "0.1.0",
+  "description": "Scaffold Maven, Gradle and Spring Boot projects from the terminal — the IntelliJ IDEA New Project wizard as a CLI.",
+  "type": "module",
+  "bin": {
+    "create-jvm": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "cli",
+    "scaffold",
+    "generator",
+    "create",
+    "maven",
+    "gradle",
+    "spring-boot",
+    "springboot",
+    "java",
+    "kotlin",
+    "groovy",
+    "jvm",
+    "initializr",
+    "starter",
+    "idea"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/S-9527/create-jvm.git"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.0.0",
+    "picocolors": "^1.1.1",
+    "tar": "^7.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/tar": "^6.1.13",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
