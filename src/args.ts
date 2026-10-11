@@ -7,7 +7,7 @@
  */
 
 import { deriveArtifactId, derivePackageName, validateGroupId } from './util/naming.js';
-import { DEFAULT_BOOT_VERSION } from './versions.js';
+import { DEFAULT_BOOT_VERSION, DEFAULT_JAVA_VERSION } from './versions.js';
 import type { BuildTool, ConfigFormat, GradleDsl, Language, Packaging, ProjectKind } from './types.js';
 
 /** Raw, still-unvalidated options produced by the parser. */
@@ -399,7 +399,7 @@ export function applyDefaults(args: ParsedArgs): {
     artifactId,
     packageName,
     version: args.version ?? '0.0.1-SNAPSHOT',
-    javaVersion: args.javaVersion ?? '21',
+    javaVersion: args.javaVersion ?? DEFAULT_JAVA_VERSION,
     kotlinVersion: args.kotlinVersion ?? '2.4.21',
     bootVersion: args.bootVersion ?? DEFAULT_BOOT_VERSION,
     description: args.description ?? '',

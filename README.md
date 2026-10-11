@@ -47,8 +47,8 @@ npx create-jvm my-app
 │  ○ YAML — application.yaml
 │
 ◆  Select a Java version
-│  ● 17
-│  ○ 21
+│  ● 21
+│  ○ 17
 │  ○ 25
 │
 ◆  Select a Spring Boot version
@@ -140,7 +140,7 @@ npm create jvm my-app
 | `--package <name>` | Base package (default derived from `groupId`) |
 | `--project-version <v>` | Project version (default `0.0.1-SNAPSHOT`) |
 | `--language <l>` | `java`, `kotlin` or `groovy` |
-| `--java-version <v>` | `17`, `21`, `25` or `27` |
+| `--java-version <v>` | `17`, `21`, `25` or `27` (default `21`) |
 | `--dsl <groovy\|kotlin>` | Gradle DSL |
 | `--packaging <jar\|war>` | Archive type |
 | `--config-format <fmt>` | Spring Boot config file: `properties` or `yaml` |

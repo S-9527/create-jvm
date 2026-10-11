@@ -24,7 +24,13 @@ import {
   validateModuleName,
   validateProjectName,
 } from './util/naming.js';
-import { JAVA_VERSIONS, DEFAULT_BOOT_VERSION, VERSIONS } from './versions.js';
+import {
+  JAVA_VERSIONS,
+  DEFAULT_BOOT_VERSION,
+  DEFAULT_JAVA_VERSION,
+  VERSIONS,
+  initialJavaVersion,
+} from './versions.js';
 import { fetchMetadata, type InitializrMetadata } from './generators/initializr.js';
 import type {
   BuildTool,
@@ -499,13 +505,21 @@ export async function runWizard(input: WizardInput): Promise<ProjectConfig | und
 
     // Java release. For Boot projects the choices come from Initializr so they
     // always match what the service will accept.
-    let javaVersion = args.javaVersion ?? metadata?.javaVersion.default ?? '21';
+    let javaVersion =
+      args.javaVersion ??
+      initialJavaVersion(
+        metadata?.javaVersion.values.map((v) => v.id),
+        metadata?.javaVersion.default,
+      );
     if (!args.javaVersion && template.kind !== 'template') {
       const choices = metadata ? metadata.javaVersion.values.map((v) => v.id) : [...JAVA_VERSIONS];
       javaVersion = unwrap(
         await p.select<string>({
           message: 'Select a Java version',
-          initialValue: metadata?.javaVersion.default ?? '21',
+          initialValue: initialJavaVersion(
+            metadata?.javaVersion.values.map((v) => v.id),
+            metadata?.javaVersion.default,
+          ),
           options: choices.map((value) => ({
             value,
             label: value,

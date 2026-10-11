@@ -86,6 +86,30 @@ export const INITIALIZR_BASE_URL = 'https://start.spring.io';
 export const JAVA_VERSIONS = ['17', '21', '25', '27'] as const;
 
 /**
+ * Java release used when none is chosen.
+ *
+ * A single constant, because the wizard and the flag path previously disagreed:
+ * the wizard used Initializr's default (17) while the flag path hard-coded 21,
+ * so `create-jvm app --spring-boot` produced a different project depending on
+ * whether it had a TTY. The value is deliberately one Initializr also offers,
+ * so it is valid for Spring Boot and for plain builds alike.
+ */
+export const DEFAULT_JAVA_VERSION = '21';
+
+/**
+ * Pick the initial Java release for a prompt.
+ *
+ * Prefers {@link DEFAULT_JAVA_VERSION} so interactive and non-interactive runs
+ * agree, but falls back to the service's own default when that release is not
+ * on offer for the selected Spring Boot version.
+ */
+export function initialJavaVersion(available: string[] | undefined, fallback?: string): string {
+  if (!available || available.length === 0) return DEFAULT_JAVA_VERSION;
+  if (available.includes(DEFAULT_JAVA_VERSION)) return DEFAULT_JAVA_VERSION;
+  return fallback && available.includes(fallback) ? fallback : (available[0] ?? DEFAULT_JAVA_VERSION);
+}
+
+/**
  * Pick the JUnit generation matching a Java release.
  *
  * JUnit 6 requires Java 17+; older targets stay on the JUnit 5 line.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseArgs, applyDefaults, normaliseLanguage } from '../src/args.js';
+import { DEFAULT_JAVA_VERSION, initialJavaVersion } from '../src/versions.js';
 
 describe('parseArgs', () => {
   it('treats a bare word as the project name', () => {
@@ -104,5 +105,26 @@ describe('normaliseLanguage', () => {
     expect(normaliseLanguage('KOTLIN')).toBe('kotlin');
     expect(normaliseLanguage('groovy')).toBe('groovy');
     expect(normaliseLanguage('scala')).toBeUndefined();
+  });
+});
+
+describe('Java version default', () => {
+  it('is the same whether or not the wizard runs', () => {
+    // The wizard previously used Initializr's default (17) while the flag path
+    // hard-coded 21, so the same command produced different projects.
+    const fromFlags = applyDefaults({ name: 'demo', warnings: [] });
+    expect(fromFlags.javaVersion).toBe(DEFAULT_JAVA_VERSION);
+  });
+
+  it('prefers the shared default over the service default', () => {
+    expect(initialJavaVersion(['27', '25', '21', '17'], '17')).toBe(DEFAULT_JAVA_VERSION);
+  });
+
+  it('falls back to the service default when the shared one is unavailable', () => {
+    expect(initialJavaVersion(['11', '8'], '8')).toBe('8');
+  });
+
+  it('uses the shared default when no metadata is available', () => {
+    expect(initialJavaVersion(undefined)).toBe(DEFAULT_JAVA_VERSION);
   });
 });
