@@ -14,6 +14,7 @@ function config(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
     dsl: 'groovy',
     language: 'java',
     packaging: 'jar',
+    configFormat: 'properties',
     groupId: 'com.example',
     artifactId: 'demo',
     version: '0.0.1-SNAPSHOT',
@@ -275,5 +276,35 @@ describe('language build wiring (regression guards)', () => {
   it('declares the kotlin stdlib with a version for Maven', async () => {
     const pom = text(await generateMaven(config({ language: 'kotlin' })), 'pom.xml');
     expect(pom).toMatch(/<artifactId>kotlin-stdlib<\/artifactId>\s*<version>/);
+  });
+});
+
+describe('Spring Boot configuration file format', () => {
+  it('writes application.properties by default', async () => {
+    const files = await generateMaven(config({ configFormat: 'properties' }));
+    expect(listFiles(files)).toContain('src/main/resources/application.properties');
+    expect(listFiles(files)).not.toContain('src/main/resources/application.yaml');
+  });
+
+  it('writes application.yaml when YAML is selected', async () => {
+    const files = await generateMaven(config({ configFormat: 'yaml' }));
+    const paths = listFiles(files);
+    expect(paths).toContain('src/main/resources/application.yaml');
+    expect(paths).not.toContain('src/main/resources/application.properties');
+    expect(text(files, 'src/main/resources/application.yaml')).toContain('spring:');
+  });
+
+  it('honours the format for Gradle projects too', async () => {
+    const files = await generateGradle(
+      config({ kind: 'gradle', buildTool: 'gradle', configFormat: 'yaml' }),
+    );
+    expect(listFiles(files)).toContain('src/main/resources/application.yaml');
+  });
+
+  it('honours the format in multi-module projects', async () => {
+    const files = await generateMaven(
+      config({ configFormat: 'yaml', multiModule: true, modules: ['core'] }),
+    );
+    expect(listFiles(files)).toContain('core/src/main/resources/application.yaml');
   });
 });

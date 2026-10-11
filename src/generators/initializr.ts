@@ -97,6 +97,8 @@ export function initializrQuery(config: ProjectConfig): URLSearchParams {
   params.set('packageName', config.packageName);
   params.set('packaging', config.packaging);
   params.set('javaVersion', config.javaVersion);
+  // `configurationFileFormat` selects application.properties vs application.yaml.
+  params.set('configurationFileFormat', config.configFormat);
   if (config.bootDependencies.length > 0) {
     params.set('dependencies', config.bootDependencies.join(','));
   }

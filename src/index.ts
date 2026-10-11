@@ -133,6 +133,7 @@ function configFromArgs(
     dsl: args.dsl ?? 'groovy',
     language: args.language ?? 'java',
     packaging: args.packaging ?? 'jar',
+    configFormat: args.configFormat ?? 'properties',
     groupId: defaults.groupId,
     artifactId: defaults.artifactId,
     version: defaults.version,

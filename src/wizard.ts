@@ -22,7 +22,15 @@ import {
 } from './util/naming.js';
 import { JAVA_VERSIONS, DEFAULT_BOOT_VERSION, VERSIONS } from './versions.js';
 import { fetchMetadata, type InitializrMetadata } from './generators/initializr.js';
-import type { BuildTool, GradleDsl, Language, Packaging, ProjectConfig, ProjectKind } from './types.js';
+import type {
+  BuildTool,
+  ConfigFormat,
+  GradleDsl,
+  Language,
+  Packaging,
+  ProjectConfig,
+  ProjectKind,
+} from './types.js';
 import type { ParsedArgs } from './args.js';
 
 /** One entry in the project-type list. */
@@ -424,11 +432,13 @@ export async function runWizard(input: WizardInput): Promise<ProjectConfig | und
     // ---------------------------------------------------------- java / boot
     let javaVersion = args.javaVersion ?? metadata?.javaVersion.default ?? '21';
     let bootVersion = args.bootVersion ?? metadata?.bootVersion.default ?? DEFAULT_BOOT_VERSION;
+    // Java and Boot versions are worth asking about (the IDE shows both), but
+    // only under "Others": the defaults are right for almost every project.
     if (custom && !args.javaVersion) {
       const choices = metadata ? metadata.javaVersion.values.map((v) => v.id) : [...JAVA_VERSIONS];
       javaVersion = unwrap(
         await p.select<string>({
-          message: 'Java version',
+          message: 'Select a Java version',
           initialValue: metadata?.javaVersion.default ?? '21',
           options: choices.map((value) => ({
             value,
@@ -441,9 +451,26 @@ export async function runWizard(input: WizardInput): Promise<ProjectConfig | und
     if (custom && template.kind === 'springboot' && !args.bootVersion && metadata) {
       bootVersion = unwrap(
         await p.select<string>({
-          message: 'Spring Boot version',
+          message: 'Select a Spring Boot version',
           initialValue: metadata.bootVersion.default,
           options: metadata.bootVersion.values.map((v) => ({ value: v.id, label: v.name })),
+        }),
+      );
+    }
+
+    // --------------------------------------------------- config file format
+    // Only Spring Boot projects have this choice; it selects between
+    // application.properties and application.yaml.
+    let configFormat: ConfigFormat = args.configFormat ?? 'properties';
+    if (template.kind === 'springboot' && !args.configFormat) {
+      configFormat = unwrap(
+        await p.select<ConfigFormat>({
+          message: 'Select a configuration file format',
+          initialValue: 'properties',
+          options: [
+            { value: 'properties', label: 'Properties', hint: 'application.properties' },
+            { value: 'yaml', label: 'YAML', hint: 'application.yaml' },
+          ],
         }),
       );
     }
@@ -517,6 +544,7 @@ export async function runWizard(input: WizardInput): Promise<ProjectConfig | und
       dsl,
       language,
       packaging,
+      configFormat,
       groupId: coordinates.groupId,
       artifactId: coordinates.artifactId,
       version: coordinates.version,

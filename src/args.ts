@@ -8,7 +8,7 @@
 
 import { deriveArtifactId, derivePackageName, validateGroupId } from './util/naming.js';
 import { DEFAULT_BOOT_VERSION } from './versions.js';
-import type { BuildTool, GradleDsl, Language, Packaging, ProjectKind } from './types.js';
+import type { BuildTool, ConfigFormat, GradleDsl, Language, Packaging, ProjectKind } from './types.js';
 
 /** Raw, still-unvalidated options produced by the parser. */
 export interface ParsedArgs {
@@ -17,6 +17,7 @@ export interface ParsedArgs {
   dsl?: GradleDsl;
   language?: Language;
   packaging?: Packaging;
+  configFormat?: ConfigFormat;
   name?: string;
   groupId?: string;
   artifactId?: string;
@@ -77,6 +78,7 @@ const VALUE_FLAGS = new Set([
   '--build-tool',
   '--dsl',
   '--packaging',
+  '--config-format',
   '--name',
 ]);
 
@@ -238,6 +240,14 @@ export function parseArgs(argv: string[]): ParseResult {
           args.packaging = packaging;
           break;
         }
+        case '--config-format': {
+          const format = normaliseConfigFormat(value);
+          if (!format) {
+            return { args, error: `unsupported config format "${value}" — use properties or yaml` };
+          }
+          args.configFormat = format;
+          break;
+        }
         default:
           return { args, error: `unhandled option "${flag}"` };
       }
@@ -342,6 +352,19 @@ export function normaliseDsl(value: string): GradleDsl | undefined {
   const lower = value.toLowerCase();
   if (lower === 'groovy' || lower === 'groovy-dsl') return 'groovy';
   if (lower === 'kotlin' || lower === 'kts' || lower === 'kotlin-dsl') return 'kotlin';
+  return undefined;
+}
+
+/**
+ * Normalise a Spring Boot configuration file format.
+ *
+ * Initializr only accepts the exact spellings `properties` and `yaml`; anything
+ * else (notably `yml`) is rejected with HTTP 400 rather than coerced.
+ */
+export function normaliseConfigFormat(value: string): ConfigFormat | undefined {
+  const lower = value.toLowerCase();
+  if (lower === 'properties' || lower === 'prop') return 'properties';
+  if (lower === 'yaml' || lower === 'yml') return 'yaml';
   return undefined;
 }
 

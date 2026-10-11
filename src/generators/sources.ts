@@ -212,6 +212,23 @@ export function renderApplicationProperties(config: ProjectConfig): string {
 `;
 }
 
+/** Render a Spring Boot `application.yaml` file. */
+export function renderApplicationYaml(config: ProjectConfig): string {
+  const name = config.artifactId;
+  return `spring:
+  application:
+    name: ${name}
+`;
+}
+
+/** File name and contents for the Boot configuration file. */
+export function renderBootConfig(config: ProjectConfig): { filename: string; content: string } {
+  if (config.configFormat === 'yaml') {
+    return { filename: 'application.yaml', content: renderApplicationYaml(config) };
+  }
+  return { filename: 'application.properties', content: renderApplicationProperties(config) };
+}
+
 /** Human readable title used in generated README files. */
 export function projectTitle(config: ProjectConfig): string {
   return capitalize(config.name.replace(/[-_]+/g, ' '));

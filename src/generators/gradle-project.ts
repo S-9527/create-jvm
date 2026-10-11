@@ -18,7 +18,7 @@ import {
 import {
   mainClassFqn,
   mainSourcePath,
-  renderApplicationProperties,
+  renderBootConfig,
   renderLog4jConfig,
   renderLogbackConfig,
   renderMain,
@@ -156,7 +156,8 @@ export async function generateGradle(config: ProjectConfig): Promise<FileMap> {
       const opts = sourceOptionsFor(config, packageName, moduleMainClass, module);
       addFile(files, mainSourcePath(opts), renderMain(opts));
       addFile(files, testSourcePath(opts), renderTest(opts));
-      addFile(files, `${module}/src/main/resources/application.properties`, renderApplicationProperties(config));
+      const moduleConfigFile = renderBootConfig(config);
+      addFile(files, `${module}/src/main/resources/${moduleConfigFile.filename}`, moduleConfigFile.content);
     }
   } else {
     const mainFqn = mainClassFqn(config.packageName, mainClassName);
@@ -171,7 +172,8 @@ export async function generateGradle(config: ProjectConfig): Promise<FileMap> {
     const opts = sourceOptionsFor(config, config.packageName, mainClassName);
     addFile(files, mainSourcePath(opts), renderMain(opts));
     addFile(files, testSourcePath(opts), renderTest(opts));
-    addFile(files, 'src/main/resources/application.properties', renderApplicationProperties(config));
+    const configFile = renderBootConfig(config);
+  addFile(files, `src/main/resources/${configFile.filename}`, configFile.content);
 
     if (hasDependency(selected, 'logback')) {
       addFile(files, 'src/main/resources/logback.xml', renderLogbackConfig(config.packageName));

@@ -30,6 +30,10 @@ npx create-jvm my-app
 │  ○ Kotlin
 │  ○ Groovy
 │
+◆  Select a configuration file format
+│  ● Properties — application.properties
+│  ○ YAML — application.yaml
+│
 ◆  Select dependencies
 │  ...
 │
@@ -117,6 +121,7 @@ npm create jvm my-app
 | `--java-version <v>` | `17`, `21`, `25` or `27` |
 | `--dsl <groovy\|kotlin>` | Gradle DSL |
 | `--packaging <jar\|war>` | Archive type |
+| `--config-format <fmt>` | Spring Boot config file: `properties` or `yaml` |
 | `--dep <ids>` | Dependencies from the catalog, comma separated |
 | `--boot-dep <ids>` | Spring Boot starters by Initializr id |
 | `--module <name>` | Add a module; repeatable, implies `--multi-module` |
@@ -136,6 +141,9 @@ create-jvm orders-api --maven --dep lombok,junit5,mockito
 
 # Spring Boot service with a driver, so the context actually starts
 create-jvm orders-api --spring-boot --boot-dep web,data-jpa,postgresql,actuator
+
+# Spring Boot with application.yaml instead of application.properties
+create-jvm orders-api --spring-boot --boot-dep web --config-format yaml
 
 # Kotlin service on Gradle with the Kotlin DSL
 create-jvm billing --gradle --dsl kotlin --language kotlin --boot-dep web,actuator

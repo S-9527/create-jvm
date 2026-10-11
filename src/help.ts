@@ -32,6 +32,8 @@ Build
   --build-tool <maven|gradle> Build system (default: maven)
   --dsl <groovy|kotlin>       Gradle DSL (default: groovy)
   --packaging <jar|war>       Archive type (default: jar)
+  --config-format <fmt>       Spring Boot config file: properties | yaml
+                              (default: properties)
   --module <name>             Add a module; repeatable, implies --multi-module
   --multi-module              Generate an aggregator plus modules
   --install                   Run a build after generating

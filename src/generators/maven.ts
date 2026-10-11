@@ -13,7 +13,7 @@ import { addMavenWrapper } from './maven-wrapper.js';
 import {
   mainClassFqn,
   mainSourcePath,
-  renderApplicationProperties,
+  renderBootConfig,
   renderLog4jConfig,
   renderLogbackConfig,
   renderMain,
@@ -150,7 +150,8 @@ export async function generateMaven(config: ProjectConfig): Promise<FileMap> {
       };
       addFile(files, mainSourcePath(opts), renderMain(opts));
       addFile(files, testSourcePath(opts), renderTest(opts));
-      addFile(files, `${module}/src/main/resources/application.properties`, renderApplicationProperties(moduleConfig));
+      const moduleConfigFile = renderBootConfig(moduleConfig);
+      addFile(files, `${module}/src/main/resources/${moduleConfigFile.filename}`, moduleConfigFile.content);
       addFile(files, `${module}/.gitignore`, renderGitignore('maven'));
     }
 
@@ -176,7 +177,8 @@ export async function generateMaven(config: ProjectConfig): Promise<FileMap> {
   addFile(files, '.mvn/jvm.config', renderMavenJvmConfig());
   addFile(files, mainSourcePath(opts), renderMain(opts));
   addFile(files, testSourcePath(opts), renderTest(opts));
-  addFile(files, 'src/main/resources/application.properties', renderApplicationProperties(config));
+  const configFile = renderBootConfig(config);
+  addFile(files, `src/main/resources/${configFile.filename}`, configFile.content);
 
   if (hasDependency(selected, 'logback')) {
     addFile(files, 'src/main/resources/logback.xml', renderLogbackConfig(config.packageName));

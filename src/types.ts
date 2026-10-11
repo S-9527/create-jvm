@@ -17,6 +17,9 @@ export type Language = 'java' | 'kotlin' | 'groovy';
 /** Archive type produced by the build. */
 export type Packaging = 'jar' | 'war';
 
+/** Spring Boot configuration file format. */
+export type ConfigFormat = 'properties' | 'yaml';
+
 /**
  * A fully resolved description of the project to generate. The interactive
  * wizard and the non-interactive flag parser both produce one of these.
@@ -31,6 +34,8 @@ export interface ProjectConfig {
   dsl: GradleDsl;
   language: Language;
   packaging: Packaging;
+  /** Spring Boot configuration file format. */
+  configFormat: ConfigFormat;
   groupId: string;
   artifactId: string;
   version: string;
