@@ -128,3 +128,17 @@ describe('Java version default', () => {
     expect(initialJavaVersion(undefined)).toBe(DEFAULT_JAVA_VERSION);
   });
 });
+
+describe('flag conflicts', () => {
+  it('parses modules and multi-module together', () => {
+    const { args } = parseArgs(['--module', 'core']);
+    expect(args.modules).toEqual(['core']);
+    expect(args.multiModule).toBe(true);
+  });
+
+  it('accepts a config format and normalises it', () => {
+    expect(parseArgs(['--config-format', 'yml']).args.configFormat).toBe('yaml');
+    expect(parseArgs(['--config-format', 'properties']).args.configFormat).toBe('properties');
+    expect(parseArgs(['--config-format', 'toml']).error).toContain('unsupported config format');
+  });
+});

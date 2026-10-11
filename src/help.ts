@@ -35,6 +35,8 @@ Build
   --config-format <fmt>       Spring Boot config file: properties | yaml
                               (default: properties)
   --module <name>             Add a module; repeatable, implies --multi-module
+                              (Maven and Gradle only — Initializr cannot produce
+                              a multi-module Spring Boot project)
   --multi-module              Generate an aggregator plus modules
   --install                   Run a build after generating
   --no-install                Skip the post-generation build

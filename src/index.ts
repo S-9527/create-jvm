@@ -124,6 +124,16 @@ function configFromArgs(
     throw new Error(`invalid --group-id "${args.groupId}"`);
   }
   const dependencies = args.dependencies ? resolveDependencies(args.dependencies) : [];
+  const modules = args.modules ?? [];
+  const multiModule = args.multiModule ?? false;
+
+  // Spring Initializr produces a single-module project and has no parameter for
+  // extra modules, so asking for both would silently drop the modules.
+  if (kind === 'springboot' && (multiModule || modules.length > 0)) {
+    throw new Error(
+      'Spring Boot projects cannot be generated as multi-module — Initializr only produces a single module. Generate the parent with --maven or --gradle and add the Boot module separately.',
+    );
+  }
 
   return {
     kind,
@@ -144,8 +154,8 @@ function configFromArgs(
     description: defaults.description,
     dependencies: dependencies.map((d) => d.id),
     bootDependencies: args.bootDependencies ?? [],
-    multiModule: args.multiModule ?? false,
-    modules: args.modules ?? [],
+    multiModule,
+    modules,
     shade: false,
     ...(args.template ? { template: args.template } : {}),
     git: args.git ?? true,
