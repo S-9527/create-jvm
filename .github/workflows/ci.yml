@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        # 18.17 is the documented floor; 20 and 22 guard against regressions.
+        node: ['18.17', '20', '22']
+        include:
+          # Windows matters: the generated mvnw.cmd / gradlew.bat are only
+          # exercised by a real Windows run.
+          - os: windows-latest
+            node: '20'
+          - os: macos-latest
+            node: '20'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Smoke test the CLI
+        run: |
+          node dist/cli.js --version
+          node dist/cli.js --help
+
+      # Generates real projects and builds them, so a broken template or a bad
+      # plugin version fails CI rather than a user's first run.
+      - name: Generate and build a Maven project
+        if: runner.os != 'Windows'
+        run: |
+          node dist/cli.js smoke-maven --maven --dep lombok --no-git --no-color
+          cd smoke-maven && ./mvnw -B -q package -DskipTests
+
+      - name: Generate and build a Gradle project
+        if: runner.os != 'Windows'
+        run: |
+          node dist/cli.js smoke-gradle --gradle --dsl kotlin --no-git --no-color
+          cd smoke-gradle && ./gradlew --no-daemon -q build -x test

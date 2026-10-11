@@ -7,6 +7,10 @@ IDEA *New Project* wizard as a CLI.
 npx create-jvm my-app
 ```
 
+[![npm version](https://img.shields.io/npm/v/create-jvm.svg)](https://www.npmjs.com/package/create-jvm)
+[![npm downloads](https://img.shields.io/npm/dm/create-jvm.svg)](https://www.npmjs.com/package/create-jvm)
+[![license](https://img.shields.io/npm/l/create-jvm.svg)](https://github.com/S-9527/create-jvm/blob/master/LICENSE)
+
 ```text
 ┌  create-jvm  the JVM project scaffolder
 │
@@ -79,17 +83,28 @@ feels identical.
 
 ## Install
 
-```bash
-# one-off
-npx create-jvm my-app
+Nothing to install — run it directly:
 
-# or install it
-npm install -g create-jvm
-pnpm add -g create-jvm
+```bash
+npx create-jvm my-app
+pnpm create jvm my-app      # the create-* convention
+yarn create jvm my-app
+bunx create-jvm my-app
 ```
 
-Requires Node.js 18.17 or newer. Nothing else — the generated project brings its
-own wrapper (`mvnw` / `gradlew`).
+Or install it globally:
+
+```bash
+npm install -g create-jvm
+```
+
+Requires **Node.js 18.17 or newer** and nothing else. You do not need Maven,
+Gradle or a JDK to scaffold a project: generated projects carry their own
+wrapper (`mvnw` / `gradlew`), so the build tool is fetched on first build.
+
+> Generating a **Spring Boot** project calls `start.spring.io`, so that path
+> needs network access. Plain Maven and Gradle projects are generated locally
+> and work offline.
 
 ## What it generates
 

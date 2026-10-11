@@ -21,7 +21,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run typecheck && npm run build && npm test"
   },
   "keywords": [
     "cli",
@@ -44,6 +44,14 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/S-9527/create-jvm.git"
+  },
+  "homepage": "https://github.com/S-9527/create-jvm#readme",
+  "bugs": {
+    "url": "https://github.com/S-9527/create-jvm/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",

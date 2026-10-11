@@ -7,3 +7,4 @@ coverage/
 .probe/
 .gradle-home/
 playground/
+*.tgz
