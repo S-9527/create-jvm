@@ -1,6 +1,12 @@
 /**
  * Gradle build script generation for both the Groovy and Kotlin DSLs.
  *
+ * The two DSLs produce structurally identical scripts — the same plugins, the
+ * same blocks, in the same order — and differ only in syntax. Rather than
+ * maintain two near-identical renderers, the structure is walked once and a
+ * {@link GradleDialect} supplies the syntax-specific fragments. Fixing a bug in
+ * the shared walk therefore fixes both DSLs at once.
+ *
  * Java compilation targets are expressed with `options.release` and Kotlin's
  * `jvmTarget` rather than a Java toolchain. A toolchain would force Gradle to
  * provision a matching JDK, which fails offline; this way a generated project
@@ -22,6 +28,39 @@ export interface GradleOptions {
   mainClass?: string;
   /** True for a child module build script. */
   isModule?: boolean;
+}
+
+/** Plugin to apply, with an optional version for the `plugins { }` block. */
+interface PluginSpec {
+  /** Plugin id, e.g. `java` or `org.jetbrains.kotlin.jvm`. */
+  id: string;
+  version?: string;
+}
+
+/** The syntax-specific pieces that differ between the Groovy and Kotlin DSLs. */
+interface GradleDialect {
+  /** Quote a string literal in this DSL. */
+  quote(value: string): string;
+  /** The `import` line needed for the Kotlin JVM target enum. */
+  jvmTargetImport: string | null;
+  /** Render one `plugins { }` entry. */
+  pluginLine(plugin: PluginSpec): string;
+  /** `apply plugin: 'java'` vs `apply(plugin = "java")`. */
+  applyJava: string;
+  /** The full `withType(...)` receiver for a task type. */
+  withType(taskType: string): string;
+  /** Setting a `release` value on the compile options, at the given indent. */
+  setRelease(version: string, indent: string): string;
+  /** `options.encoding = 'UTF-8'` in this DSL, at the given indent. */
+  setEncoding(indent: string): string;
+  /** A dependency declaration line. */
+  dependencyLine(dep: Dependency): string;
+  /** A `testRuntimeOnly` declaration line. */
+  testRuntimeOnly(coordinate: string): string;
+  /** The Kotlin compiler options block. */
+  kotlinJvmTargetBlock(javaVersion: string): string;
+  /** The `application { mainClass = ... }` block. */
+  applicationBlock(mainClass: string): string;
 }
 
 /** Map a Java release to the matching Kotlin `JvmTarget` enum constant. */
@@ -50,34 +89,80 @@ export function gradleConfiguration(dep: Dependency): string {
   }
 }
 
+/** `groupId:artifactId[:version]` for a dependency. */
+function coordinate(dep: Dependency): string {
+  return dep.version
+    ? `${dep.groupId}:${dep.artifactId}:${dep.version}`
+    : `${dep.groupId}:${dep.artifactId}`;
+}
+
+const GROOVY: GradleDialect = {
+  quote: (value) => `'${escapeGroovy(value)}'`,
+  jvmTargetImport: `import org.jetbrains.kotlin.gradle.dsl.JvmTarget`,
+  pluginLine: (plugin) =>
+    plugin.version ? `    id '${plugin.id}' version '${plugin.version}'` : `    id '${plugin.id}'`,
+  applyJava: `    apply plugin: 'java'`,
+  withType: (taskType) => `withType(${taskType})`,
+  setRelease: (version, indent) => `${indent}options.release = ${version}`,
+  setEncoding: (indent) => `${indent}options.encoding = 'UTF-8'`,
+  dependencyLine: (dep) => `    ${gradleConfiguration(dep)} '${escapeGroovy(coordinate(dep))}'`,
+  testRuntimeOnly: (coord) => `    testRuntimeOnly '${escapeGroovy(coord)}'`,
+  kotlinJvmTargetBlock: (javaVersion) => `kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.${kotlinJvmTarget(javaVersion)}
+    }
+}`,
+  applicationBlock: (mainClass) => `application {
+    mainClass = '${escapeGroovy(mainClass)}'
+}`,
+};
+
+const KOTLIN_DSL: GradleDialect = {
+  quote: (value) => `"${escapeKotlin(value)}"`,
+  jvmTargetImport: `import org.jetbrains.kotlin.gradle.dsl.JvmTarget`,
+  pluginLine: (plugin) => {
+    if (plugin.id.startsWith('org.jetbrains.kotlin')) {
+      // Kotlin plugins use the `kotlin("jvm")` accessor form.
+      const short = plugin.id.replace('org.jetbrains.kotlin.', '');
+      return `    kotlin("${short}") version "${plugin.version}"`;
+    }
+    if (plugin.version) return `    id("${plugin.id}") version "${plugin.version}"`;
+    // Core plugins must be backtick-escaped in the Kotlin DSL.
+    return `    \`${plugin.id}\``;
+  },
+  applyJava: `    apply(plugin = "java")`,
+  withType: (taskType) => `withType<${taskType}>()`,
+  setRelease: (version, indent) => `${indent}options.release.set(${version})`,
+  setEncoding: (indent) => `${indent}options.encoding = "UTF-8"`,
+  dependencyLine: (dep) =>
+    `    ${gradleConfiguration(dep)}("${escapeKotlin(coordinate(dep))}")`,
+  testRuntimeOnly: (coord) => `    testRuntimeOnly("${escapeKotlin(coord)}")`,
+  kotlinJvmTargetBlock: (javaVersion) => `kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.${kotlinJvmTarget(javaVersion)}
+    }
+}`,
+  applicationBlock: (mainClass) => `application {
+    mainClass = "${escapeKotlin(mainClass)}"
+}`,
+};
+
 /** `settings.gradle` / `settings.gradle.kts` contents. */
 export function renderSettings(options: GradleOptions): string {
   const { config, modules } = options;
-  const name = config.artifactId;
-  if (config.dsl === 'kotlin') {
-    const lines = [`rootProject.name = "${escapeKotlin(name)}"`];
-    if (modules && modules.length > 0) {
-      lines.push('');
-      for (const module of modules) {
-        lines.push(`include("${escapeKotlin(module)}")`);
-      }
-    }
-    return `${lines.join('\n')}\n`;
-  }
-  const lines = [`rootProject.name = '${escapeGroovy(name)}'`];
+  const dialect = config.dsl === 'kotlin' ? KOTLIN_DSL : GROOVY;
+  const lines = [`rootProject.name = ${dialect.quote(config.artifactId)}`];
   if (modules && modules.length > 0) {
     lines.push('');
     for (const module of modules) {
-      lines.push(`include '${escapeGroovy(module)}'`);
+      lines.push(
+        config.dsl === 'kotlin'
+          ? `include("${escapeKotlin(module)}")`
+          : `include '${escapeGroovy(module)}'`,
+      );
     }
   }
   return `${lines.join('\n')}\n`;
-}
-
-interface PluginSpec {
-  /** Plugin id, e.g. `java` or `org.jetbrains.kotlin.jvm`. */
-  id: string;
-  version?: string;
 }
 
 /** The `plugins { }` block contents for a project. */
@@ -98,257 +183,147 @@ export function pluginsFor(options: GradleOptions): PluginSpec[] {
         plugins.push({ id: 'java' });
         break;
     }
-    if (config.language === 'java' || config.language === 'kotlin' || config.language === 'groovy') {
-      if (config.packaging === 'war') plugins.push({ id: 'war' });
-      if (mainClass && config.packaging !== 'war') plugins.push({ id: 'application' });
-    }
+    if (config.packaging === 'war') plugins.push({ id: 'war' });
+    else if (mainClass) plugins.push({ id: 'application' });
   }
 
   return plugins;
 }
 
-function groovyPluginBlock(plugins: PluginSpec[], level: number): string[] {
+/** Render the `plugins { }` block, or `[]` when there are no plugins. */
+function pluginBlock(plugins: PluginSpec[], dialect: GradleDialect): string[] {
   if (plugins.length === 0) return [];
-  const pad = '  '.repeat(level);
-  const lines = [`${pad}plugins {`];
-  for (const plugin of plugins) {
-    lines.push(
-      plugin.version
-        ? `${pad}    id '${plugin.id}' version '${plugin.version}'`
-        : `${pad}    id '${plugin.id}'`,
-    );
-  }
-  lines.push(`${pad}}`);
-  return lines;
+  return ['plugins {', ...plugins.map((p) => dialect.pluginLine(p)), '}'];
 }
 
-function kotlinPluginBlock(plugins: PluginSpec[], level: number): string[] {
-  if (plugins.length === 0) return [];
-  const pad = '  '.repeat(level);
-  const lines = [`${pad}plugins {`];
-  for (const plugin of plugins) {
-    if (plugin.id.startsWith('org.jetbrains.kotlin')) {
-      const short = plugin.id.replace('org.jetbrains.kotlin.', '');
-      lines.push(`${pad}    kotlin("${short}") version "${plugin.version}"`);
-    } else if (plugin.version) {
-      lines.push(`${pad}    id("${plugin.id}") version "${plugin.version}"`);
-    } else {
-      lines.push(`${pad}    \`${plugin.id}\``);
+/** The `allprojects { }` block of a multi-module aggregator. */
+function allProjectsBlock(config: ProjectConfig, dialect: GradleDialect): string {
+  return `allprojects {
+    group = ${dialect.quote(config.groupId)}
+    version = ${dialect.quote(config.version)}
+
+    repositories {
+        mavenCentral()
     }
+}`;
+}
+
+/** The `subprojects { }` block of a multi-module aggregator. */
+function subProjectsBlock(config: ProjectConfig, dialect: GradleDialect): string {
+  return [
+    'subprojects {',
+    dialect.applyJava,
+    '',
+    '    java {',
+    '        withSourcesJar()',
+    '    }',
+    '',
+    `    tasks.${dialect.withType('JavaCompile')}.configureEach {`,
+    dialect.setRelease(config.javaVersion, '        '),
+    dialect.setEncoding('        '),
+    '    }',
+    '',
+    `    tasks.${dialect.withType('Test')}.configureEach {`,
+    '        useJUnitPlatform()',
+    '    }',
+    '}',
+  ].join('\n');
+}
+
+/** The `group` / `version` / `repositories` preamble of a build script. */
+function preamble(config: ProjectConfig, dialect: GradleDialect): string {
+  return `group = ${dialect.quote(config.groupId)}
+version = ${dialect.quote(config.version)}
+
+repositories {
+    mavenCentral()
+}`;
+}
+
+/**
+ * The compile-target block.
+ *
+ * For Kotlin both compilers must agree on the target: Gradle validates that the
+ * Java and Kotlin tasks produce the same bytecode level. Setting only the Kotlin
+ * `jvmTarget` would leave `compileJava` on the running JDK's default and fail
+ * the build with "Inconsistent JVM Target Compatibility".
+ */
+function compileTargetBlock(config: ProjectConfig, dialect: GradleDialect): string {
+  const javaCompile = `tasks.${dialect.withType('JavaCompile')}.configureEach {
+${dialect.setRelease(config.javaVersion, '    ')}
+${dialect.setEncoding('    ')}
+}`;
+  if (config.language !== 'kotlin') return javaCompile;
+  return `${javaCompile}\n\n${dialect.kotlinJvmTargetBlock(config.javaVersion)}`;
+}
+
+/** The `dependencies { }` block, including the JUnit launcher when needed. */
+function dependenciesBlock(
+  config: ProjectConfig,
+  dependencies: Dependency[],
+  dialect: GradleDialect,
+): string | undefined {
+  if (dependencies.length === 0) return undefined;
+  const junit = junitFor(config.javaVersion);
+  const lines = ['dependencies {'];
+  for (const dep of dependencies) lines.push(dialect.dependencyLine(dep));
+  // Gradle's JUnit 6 support needs the platform launcher on the test runtime.
+  if (junit.major === 6 && dependencies.some((d) => d.scope === 'test')) {
+    lines.push(dialect.testRuntimeOnly(`org.junit.platform:junit-platform-launcher:${junit.launcher}`));
   }
-  lines.push(`${pad}}`);
-  return lines;
+  lines.push('}');
+  return lines.join('\n');
 }
 
-function groovyDependencyLine(dep: Dependency): string {
-  const coord = dep.version
-    ? `${dep.groupId}:${dep.artifactId}:${dep.version}`
-    : `${dep.groupId}:${dep.artifactId}`;
-  return `    ${gradleConfiguration(dep)} '${escapeGroovy(coord)}'`;
+/** The trailing `test { useJUnitPlatform() }` block. */
+function testBlock(dialect: GradleDialect): string {
+  return `tasks.${dialect.withType('Test')}.configureEach {
+    useJUnitPlatform()
+}`;
 }
 
-function kotlinDependencyLine(dep: Dependency): string {
-  const coord = dep.version
-    ? `${dep.groupId}:${dep.artifactId}:${dep.version}`
-    : `${dep.groupId}:${dep.artifactId}`;
-  return `    ${gradleConfiguration(dep)}("${escapeKotlin(coord)}")`;
+/** Render a build script in the given dialect. */
+function renderBuildScriptFor(options: GradleOptions, dialect: GradleDialect): string {
+  const { config, dependencies, modules, mainClass } = options;
+  const isRootAggregator = Boolean(modules && modules.length > 0 && !options.isModule);
+  const blocks: string[] = [];
+
+  if (config.language === 'kotlin' && dialect.jvmTargetImport) {
+    blocks.push(dialect.jvmTargetImport);
+  }
+
+  const plugins = pluginBlock(pluginsFor(options), dialect);
+  if (plugins.length > 0) blocks.push(plugins.join('\n'));
+
+  if (isRootAggregator) {
+    // An aggregator carries no sources of its own; it only shares settings.
+    blocks.push(allProjectsBlock(config, dialect));
+    blocks.push(subProjectsBlock(config, dialect));
+    return `${blocks.join('\n\n')}\n`;
+  }
+
+  blocks.push(preamble(config, dialect));
+  blocks.push(compileTargetBlock(config, dialect));
+
+  if (mainClass && config.packaging !== 'war') {
+    blocks.push(dialect.applicationBlock(mainClass));
+  }
+
+  const deps = dependenciesBlock(config, dependencies, dialect);
+  if (deps) blocks.push(deps);
+
+  blocks.push(testBlock(dialect));
+  return `${blocks.join('\n\n')}\n`;
 }
 
 /** Render a Groovy DSL `build.gradle`. */
 export function renderBuildGradle(options: GradleOptions): string {
-  const { config, dependencies, modules, mainClass } = options;
-  const isRootAggregator = Boolean(modules && modules.length > 0 && !options.isModule);
-  const junit = junitFor(config.javaVersion);
-  const blocks: string[] = [];
-
-  if (config.language === 'kotlin') {
-    blocks.push(`import org.jetbrains.kotlin.gradle.dsl.JvmTarget`);
-  }
-
-  const plugins = pluginsFor(options);
-  const pluginBlock = groovyPluginBlock(plugins, 0);
-  if (pluginBlock.length > 0) blocks.push(pluginBlock.join('\n'));
-
-  if (isRootAggregator) {
-    // Aggregator: share coordinates and repositories with every module.
-    blocks.push(`allprojects {
-    group = '${escapeGroovy(config.groupId)}'
-    version = '${escapeGroovy(config.version)}'
-
-    repositories {
-        mavenCentral()
-    }
-}`);
-
-    const subLines = [
-      'subprojects {',
-      '    apply plugin: \'java\'',
-      '',
-      `    java {`,
-      `        withSourcesJar()`,
-      `    }`,
-      '',
-      '    tasks.withType(JavaCompile).configureEach {',
-      `        options.release = ${config.javaVersion}`,
-      '        options.encoding = \'UTF-8\'',
-      '    }',
-      '',
-      '    tasks.withType(Test).configureEach {',
-      '        useJUnitPlatform()',
-      '    }',
-      '}',
-    ];
-    blocks.push(subLines.join('\n'));
-    return `${blocks.join('\n\n')}\n`;
-  }
-
-  blocks.push(`group = '${escapeGroovy(config.groupId)}'
-version = '${escapeGroovy(config.version)}'
-
-repositories {
-    mavenCentral()
-}`);
-
-  if (config.language === 'kotlin') {
-    // Both compilers must agree on the target: Gradle validates that the Java
-    // and Kotlin tasks produce the same bytecode level. Setting only the Kotlin
-    // `jvmTarget` would leave `compileJava` on the running JDK's default and
-    // fail the build with "Inconsistent JVM Target Compatibility".
-    blocks.push(`tasks.withType(JavaCompile).configureEach {
-    options.release = ${config.javaVersion}
-    options.encoding = 'UTF-8'
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget = JvmTarget.${kotlinJvmTarget(config.javaVersion)}
-    }
-}`);
-  } else {
-    blocks.push(`tasks.withType(JavaCompile).configureEach {
-    options.release = ${config.javaVersion}
-    options.encoding = 'UTF-8'
-}`);
-  }
-
-  if (mainClass && config.packaging !== 'war') {
-    blocks.push(`application {
-    mainClass = '${escapeGroovy(mainClass)}'
-}`);
-  }
-
-  if (dependencies.length > 0) {
-    const lines = ['dependencies {'];
-    for (const dep of dependencies) lines.push(groovyDependencyLine(dep));
-    // The JUnit Platform launcher is required by Gradle's JUnit 6 support.
-    if (junit.major === 6 && dependencies.some((d) => d.scope === 'test')) {
-      lines.push(`    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:${junit.launcher}'`);
-    }
-    lines.push('}');
-    blocks.push(lines.join('\n'));
-  }
-
-  blocks.push(`tasks.withType(Test).configureEach {
-    useJUnitPlatform()
-}`);
-
-  return `${blocks.join('\n\n')}\n`;
+  return renderBuildScriptFor(options, GROOVY);
 }
 
 /** Render a Kotlin DSL `build.gradle.kts`. */
 export function renderBuildGradleKts(options: GradleOptions): string {
-  const { config, dependencies, modules, mainClass } = options;
-  const isRootAggregator = Boolean(modules && modules.length > 0 && !options.isModule);
-  const junit = junitFor(config.javaVersion);
-  const blocks: string[] = [];
-
-  if (config.language === 'kotlin') {
-    blocks.push(`import org.jetbrains.kotlin.gradle.dsl.JvmTarget`);
-  }
-
-  const plugins = pluginsFor(options);
-  const pluginBlock = kotlinPluginBlock(plugins, 0);
-  if (pluginBlock.length > 0) blocks.push(pluginBlock.join('\n'));
-
-  if (isRootAggregator) {
-    blocks.push(`allprojects {
-    group = "${escapeKotlin(config.groupId)}"
-    version = "${escapeKotlin(config.version)}"
-
-    repositories {
-        mavenCentral()
-    }
-}`);
-
-    const subLines = [
-      'subprojects {',
-      '    apply(plugin = "java")',
-      '',
-      '    configure<JavaPluginExtension> {',
-      '        withSourcesJar()',
-      '    }',
-      '',
-      '    tasks.withType<JavaCompile>().configureEach {',
-      `        options.release.set(${config.javaVersion})`,
-      '        options.encoding = "UTF-8"',
-      '    }',
-      '',
-      '    tasks.withType<Test>().configureEach {',
-      '        useJUnitPlatform()',
-      '    }',
-      '}',
-    ];
-    blocks.push(subLines.join('\n'));
-    return `${blocks.join('\n\n')}\n`;
-  }
-
-  blocks.push(`group = "${escapeKotlin(config.groupId)}"
-version = "${escapeKotlin(config.version)}"
-
-repositories {
-    mavenCentral()
-}`);
-
-  if (config.language === 'kotlin') {
-    // See the Groovy DSL renderer: the Java and Kotlin targets must match.
-    blocks.push(`tasks.withType<JavaCompile>().configureEach {
-    options.release.set(${config.javaVersion})
-    options.encoding = "UTF-8"
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget = JvmTarget.${kotlinJvmTarget(config.javaVersion)}
-    }
-}`);
-  } else {
-    blocks.push(`tasks.withType<JavaCompile>().configureEach {
-    options.release.set(${config.javaVersion})
-    options.encoding = "UTF-8"
-}`);
-  }
-
-  if (mainClass && config.packaging !== 'war') {
-    blocks.push(`application {
-    mainClass = "${escapeKotlin(mainClass)}"
-}`);
-  }
-
-  if (dependencies.length > 0) {
-    const lines = ['dependencies {'];
-    for (const dep of dependencies) lines.push(kotlinDependencyLine(dep));
-    if (junit.major === 6 && dependencies.some((d) => d.scope === 'test')) {
-      lines.push(`    testRuntimeOnly("org.junit.platform:junit-platform-launcher:${junit.launcher}")`);
-    }
-    lines.push('}');
-    blocks.push(lines.join('\n'));
-  }
-
-  blocks.push(`tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
-}`);
-
-  return `${blocks.join('\n\n')}\n`;
+  return renderBuildScriptFor(options, KOTLIN_DSL);
 }
 
 /** Render a `build.gradle` or `build.gradle.kts` for the configured DSL. */
@@ -377,4 +352,3 @@ zipStoreBase=GRADLE_USER_HOME
 zipStorePath=wrapper/dists
 `;
 }
-
