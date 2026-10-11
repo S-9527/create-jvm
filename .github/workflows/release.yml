@@ -1,7 +1,16 @@
 name: Release
 
-# Publishes to npm when a version tag is pushed, e.g. `git tag v0.1.0 && git push --tags`.
-# Requires an NPM_TOKEN repository secret (an npm automation token).
+# Publishes to npm using Trusted Publishing (OIDC) — no long-lived token.
+#
+# One-time setup on npmjs.com (package → Settings → Trusted Publisher → GitHub Actions):
+#   Organization or user : S-9527
+#   Repository           : create-jvm
+#   Workflow filename    : release.yml
+#   Allowed actions      : tick "Allow npm publish"
+#
+# Note: trusted publishers created after 2026-09-03 default to allowing only
+# `npm stage publish`. Direct `npm publish` must be granted explicitly, either
+# by ticking the box in the UI or with `npm trust github --allow-publish`.
 on:
   push:
     tags: ['v*']
@@ -16,27 +25,44 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
+      # Required for OIDC: lets the job mint the short-lived publish token.
+      id-token: write
       contents: read
-      id-token: write # for npm provenance
-    steps:
-      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v5
+    steps:
+      - uses: actions/checkout@v6
+
+      # Node 24 is deliberate: trusted publishing needs npm >= 11.5.1, while
+      # Node 22.14 (the oldest supported Node) still bundles npm 10.9.2.
+      - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          cache: npm
+          # npm's own guidance: never cache in release builds.
+          package-manager-cache: false
+
+      - name: Verify npm supports trusted publishing
+        run: |
+          npm --version
+          node -e "
+            const [major, minor] = require('child_process')
+              .execSync('npm --version').toString().trim().split('.').map(Number);
+            if (major < 11 || (major === 11 && minor < 5)) {
+              console.error('npm >= 11.5.1 is required for trusted publishing');
+              process.exit(1);
+            }
+          "
 
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
 
+      # No NODE_AUTH_TOKEN: the npm CLI detects the OIDC environment and
+      # authenticates with a short-lived token automatically.
       # prepublishOnly rebuilds, so dist/ is always current.
       - name: Publish
         if: ${{ github.event_name == 'push' || inputs.dry-run == false }}
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Pack only
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
