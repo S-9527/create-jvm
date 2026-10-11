@@ -125,8 +125,11 @@ function kotlinPluginXml(level: number): string {
 }
 
 /** Build the `gmavenplus-plugin` block for Groovy sources. */
-function groovyPluginXml(level: number): string {
+function groovyPluginXml(config: ProjectConfig, level: number): string {
   const pad = indent(level);
+  // Groovy 5 refuses to compile to the 1.8 bytecode level it defaults to, so
+  // the target must be stated explicitly.
+  const bytecode = config.javaVersion === '8' ? '1.8' : config.javaVersion;
   return [
     `${pad}<plugin>`,
     `${pad}  <groupId>org.codehaus.gmavenplus</groupId>`,
@@ -140,6 +143,9 @@ function groovyPluginXml(level: number): string {
     `${pad}      </goals>`,
     `${pad}    </execution>`,
     `${pad}  </executions>`,
+    `${pad}  <configuration>`,
+    `${pad}    <targetBytecode>${escapeXml(bytecode)}</targetBytecode>`,
+    `${pad}  </configuration>`,
     `${pad}</plugin>`,
   ].join('\n');
 }
@@ -311,7 +317,7 @@ export function renderPom(options: PomOptions): string {
       plugins.push(kotlinPluginXml(4));
     } else if (config.language === 'groovy') {
       plugins.push(compilerPluginXml(options, 4));
-      plugins.push(groovyPluginXml(4));
+      plugins.push(groovyPluginXml(config, 4));
     } else {
       plugins.push(compilerPluginXml(options, 4));
     }

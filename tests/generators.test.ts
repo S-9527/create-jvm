@@ -241,3 +241,39 @@ describe('generateGradle', () => {
     expect(build).toContain('options.release.set(21)');
   });
 });
+
+describe('language build wiring (regression guards)', () => {
+  it('gives Groovy Maven builds an explicit version and bytecode target', async () => {
+    const pom = text(await generateMaven(config({ language: 'groovy' })), 'pom.xml');
+    // Maven rejects a versionless dependency without a parent POM.
+    expect(pom).toMatch(/<artifactId>groovy<\/artifactId>\s*<version>/);
+    // Groovy 5 refuses to target the 1.8 bytecode it defaults to.
+    expect(pom).toContain('<targetBytecode>21</targetBytecode>');
+  });
+
+  it('gives Groovy Gradle builds a Groovy runtime on the compile classpath', async () => {
+    const build = text(
+      await generateGradle(config({ kind: 'gradle', buildTool: 'gradle', language: 'groovy' })),
+      'build.gradle',
+    );
+    expect(build).toMatch(/implementation 'org\.apache\.groovy:groovy:/);
+  });
+
+  it('aligns the Java and Kotlin JVM targets so Gradle validation passes', async () => {
+    for (const dsl of ['groovy', 'kotlin'] as const) {
+      const files = await generateGradle(
+        config({ kind: 'gradle', buildTool: 'gradle', dsl, language: 'kotlin' }),
+      );
+      const build = text(files, dsl === 'kotlin' ? 'build.gradle.kts' : 'build.gradle');
+      // compileJava must be pinned too, otherwise it inherits the running JDK.
+      expect(build).toContain('JavaCompile');
+      expect(build).toContain('21');
+      expect(build).toContain('JvmTarget.JVM_21');
+    }
+  });
+
+  it('declares the kotlin stdlib with a version for Maven', async () => {
+    const pom = text(await generateMaven(config({ language: 'kotlin' })), 'pom.xml');
+    expect(pom).toMatch(/<artifactId>kotlin-stdlib<\/artifactId>\s*<version>/);
+  });
+});

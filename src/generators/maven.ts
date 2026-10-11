@@ -6,7 +6,7 @@ import { hasDependency, resolveDependencies, dedupeDependencies } from '../catal
 import { deriveMainClassName, packageToPath } from '../util/naming.js';
 import { addFile, type FileMap } from '../writer.js';
 import type { Dependency, ProjectConfig } from '../types.js';
-import { junitFor } from '../versions.js';
+import { junitFor, VERSIONS } from '../versions.js';
 import { renderGitignore, renderMavenJvmConfig, renderReadme } from './common.js';
 import { renderPom } from './pom.js';
 import { addMavenWrapper } from './maven-wrapper.js';
@@ -48,6 +48,8 @@ function languageDependencies(config: ProjectConfig): Dependency[] {
         group: 'Languages',
         groupId: 'org.apache.groovy',
         artifactId: 'groovy',
+        // Without a parent POM the version must be explicit.
+        version: VERSIONS.groovy,
       },
     ];
   }

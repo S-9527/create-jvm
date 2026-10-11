@@ -27,7 +27,7 @@ import {
   type SourceOptions,
 } from './sources.js';
 import { addGradleWrapper } from './wrapper.js';
-import { GRADLE_WRAPPER_VERSION, junitFor } from '../versions.js';
+import { GRADLE_WRAPPER_VERSION, VERSIONS, junitFor } from '../versions.js';
 
 const MAIN_ROOT = 'src/main';
 const TEST_ROOT = 'src/test';
@@ -47,8 +47,19 @@ function languageDependencies(config: ProjectConfig): Dependency[] {
     ];
   }
   if (config.language === 'groovy') {
-    // The `groovy` plugin adds the Groovy runtime to `implementation` itself.
-    return [];
+    // Gradle 9's `groovy` plugin no longer puts a Groovy runtime on the
+    // compile classpath, so `compileGroovy` fails with "Cannot infer Groovy
+    // class path" unless the dependency is declared explicitly.
+    return [
+      {
+        id: 'groovy',
+        name: 'Apache Groovy',
+        group: 'Languages',
+        groupId: 'org.apache.groovy',
+        artifactId: 'groovy',
+        version: VERSIONS.groovy,
+      },
+    ];
   }
   return [];
 }

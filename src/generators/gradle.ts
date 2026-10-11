@@ -210,7 +210,16 @@ repositories {
 }`);
 
   if (config.language === 'kotlin') {
-    blocks.push(`kotlin {
+    // Both compilers must agree on the target: Gradle validates that the Java
+    // and Kotlin tasks produce the same bytecode level. Setting only the Kotlin
+    // `jvmTarget` would leave `compileJava` on the running JDK's default and
+    // fail the build with "Inconsistent JVM Target Compatibility".
+    blocks.push(`tasks.withType(JavaCompile).configureEach {
+    options.release = ${config.javaVersion}
+    options.encoding = 'UTF-8'
+}
+
+kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.${kotlinJvmTarget(config.javaVersion)}
     }
@@ -301,7 +310,13 @@ repositories {
 }`);
 
   if (config.language === 'kotlin') {
-    blocks.push(`kotlin {
+    // See the Groovy DSL renderer: the Java and Kotlin targets must match.
+    blocks.push(`tasks.withType<JavaCompile>().configureEach {
+    options.release.set(${config.javaVersion})
+    options.encoding = "UTF-8"
+}
+
+kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.${kotlinJvmTarget(config.javaVersion)}
     }

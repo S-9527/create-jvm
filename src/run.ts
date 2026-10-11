@@ -6,7 +6,6 @@
  * emit human output or JSON.
  */
 
-import path from 'node:path';
 import { generateMaven } from './generators/maven.js';
 import { generateGradle } from './generators/gradle-project.js';
 import { fetchInitializrProject } from './generators/initializr.js';
@@ -124,11 +123,9 @@ async function verifyBuild(config: ProjectConfig, reporter: Reporter): Promise<b
     cwd: config.targetDir,
     stdio: 'inherit',
     timeoutMs: 10 * 60 * 1000,
-    env: {
-      ...process.env,
-      // Keep Gradle's caches inside the project when the default is unwritable.
-      GRADLE_USER_HOME: process.env.GRADLE_USER_HOME ?? path.join(config.targetDir, '.gradle-home'),
-    },
+    // GRADLE_USER_HOME and the Maven repository are left at the user's
+    // defaults: a generated project should behave exactly like a hand-written
+    // one. Set them in the environment to redirect caches.
   });
 
   if (result.timedOut) {
