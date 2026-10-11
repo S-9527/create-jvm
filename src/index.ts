@@ -3,189 +3,69 @@
  *
  * Responsibilities are deliberately narrow: parse arguments, decide between the
  * wizard and a non-interactive run, build a {@link ProjectConfig}, and hand it
- * to {@link execute}. Everything else lives in its own module.
+ * to {@link execute}. Everything else lives in its own module — flag parsing in
+ * `args.ts`, flag-to-config translation in `config.ts`, presentation in
+ * `reporters.ts`, and the run itself in `run.ts`.
  */
 
 import path from 'node:path';
 import process from 'node:process';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import pc from 'picocolors';
-import { applyDefaults, isNonInteractive, parseArgs } from './args.js';
+import { parseArgs } from './args.js';
+import { configFromArgs, resolveTargetDir, VERSION } from './config.js';
 import { helpText, usageText } from './help.js';
 import { runWizard, persistenceWarnings } from './wizard.js';
-import { execute, type Reporter } from './run.js';
+import { execute } from './run.js';
 import { isEmptyDir, exists } from './util/fsx.js';
-import { resolveDependencies } from './catalog.js';
-import { validateGroupId } from './util/naming.js';
-import { DEFAULT_BOOT_VERSION, VERSIONS } from './versions.js';
+import { humanReporter, jsonReporter, makeColors, readCliOptions } from './reporters.js';
 import type { ProjectConfig } from './types.js';
 
 /**
- * The CLI version, read from the installed package.json.
+ * Decide whether to run the wizard.
  *
- * This must not be hardcoded: a literal would drift from the published version
- * on every release, and `create-jvm --version` would report the wrong number.
- * The path is resolved relative to this module so it works both from `dist/`
- * and from `src/` under tsx.
+ * The wizard is the default experience, matching `pnpm create vite`: it runs
+ * whenever the user is on a TTY and has not already pinned the decisions it
+ * would ask about.
  */
-function readVersion(): string {
-  try {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    // dist/index.js -> ../package.json; src/index.ts -> ../package.json
-    const candidates = [
-      path.resolve(here, '..', 'package.json'),
-      path.resolve(here, '..', '..', 'package.json'),
-    ];
-    for (const candidate of candidates) {
-      const raw = readFileSync(candidate, 'utf8');
-      const parsed = JSON.parse(raw) as { name?: string; version?: string };
-      if (parsed.name === 'create-jvm' && parsed.version) return parsed.version;
-    }
-  } catch {
-    // Fall through to the placeholder below.
+function shouldRunWizard(argv: string[], noInput: boolean): boolean {
+  if (noInput || !process.stdout.isTTY || !process.stdin.isTTY) return false;
+  const { args } = parseArgs(argv);
+  return (
+    args.kind === undefined &&
+    args.template === undefined &&
+    args.dependencies === undefined &&
+    args.bootDependencies === undefined &&
+    args.multiModule !== true &&
+    (args.modules === undefined || args.modules.length === 0)
+  );
+}
+
+/** Warn about combinations that generate but fail at runtime. */
+function reportConfigWarnings(config: ProjectConfig, reporter: ReturnType<typeof humanReporter>): void {
+  if (config.kind !== 'springboot') return;
+  // Initializr accepts a persistence starter without a driver, but the app then
+  // fails at startup, so flag it before the user finds out the hard way.
+  for (const warning of persistenceWarnings(config.bootDependencies)) {
+    reporter.warn(warning);
   }
-  return '0.0.0-unknown';
 }
 
-const VERSION = readVersion();
-
-/** Colours disabled when the terminal cannot handle them. */
-function makeColors(noColor: boolean): typeof pc {
-  if (noColor || !process.stdout.isTTY) {
-    const identity = (s: string): string => s;
-    return new Proxy(pc, {
-      get: (target, prop) => {
-        if (prop === 'createColors') return target.createColors.bind(target);
-        return identity;
-      },
-    }) as typeof pc;
+/** Print the "next steps" block after a successful generation. */
+function printNextSteps(
+  config: ProjectConfig,
+  cwd: string,
+  colors: ReturnType<typeof makeColors>,
+): void {
+  console.log();
+  console.log(`${colors.green('Done.')} Next steps:`);
+  console.log(`  ${colors.cyan(`cd ${path.relative(cwd, config.targetDir) || '.'}`)}`);
+  if (config.buildTool === 'maven') {
+    console.log(`  ${colors.cyan('./mvnw package')}`);
+    if (config.kind === 'springboot') console.log(`  ${colors.cyan('./mvnw spring-boot:run')}`);
+  } else {
+    console.log(`  ${colors.cyan('./gradlew build')}`);
+    if (config.kind === 'springboot') console.log(`  ${colors.cyan('./gradlew bootRun')}`);
   }
-  return pc;
-}
-
-interface CliOptions {
-  json: boolean;
-  noInput: boolean;
-  noColor: boolean;
-  quiet: boolean;
-}
-
-function readCliOptions(argv: string[]): CliOptions {
-  return {
-    json: argv.includes('--json'),
-    noInput: isNonInteractive(argv),
-    noColor: argv.includes('--no-color'),
-    quiet: argv.includes('--quiet') || argv.includes('-q'),
-  };
-}
-
-/** Human-readable reporter. */
-function humanReporter(colors: typeof pc, quiet: boolean): Reporter {
-  return {
-    info: (message) => {
-      if (!quiet) console.log(`${colors.dim('•')} ${message}`);
-    },
-    warn: (message) => console.log(`${colors.yellow('!')} ${message}`),
-    error: (message) => console.error(`${colors.red('✖')} ${message}`),
-    success: (message) => {
-      if (!quiet) console.log(`${colors.green('✔')} ${message}`);
-    },
-    files: (files) => {
-      if (quiet) return;
-      for (const file of files) console.log(`  ${colors.dim('+')} ${file}`);
-    },
-  };
-}
-
-/** JSON reporter: emits a single document at the end. */
-function jsonReporter(): { reporter: Reporter; flush: (payload: unknown) => void } {
-  const events: { level: string; message: string }[] = [];
-  let collectedFiles: string[] = [];
-  const reporter: Reporter = {
-    info: (message) => events.push({ level: 'info', message }),
-    warn: (message) => events.push({ level: 'warn', message }),
-    error: (message) => events.push({ level: 'error', message }),
-    success: (message) => events.push({ level: 'success', message }),
-    files: (files) => {
-      collectedFiles = files;
-    },
-  };
-  return {
-    reporter,
-    flush: (payload) => {
-      console.log(JSON.stringify({ ...(payload as object), files: collectedFiles, events }, null, 2));
-    },
-  };
-}
-
-/**
- * Resolve the target directory for a project name.
- *
- * `.` means "generate into the current directory"; any other name becomes a
- * subdirectory of the working directory.
- */
-function resolveTargetDir(cwd: string, name: string): string {
-  if (name === '.') return cwd;
-  return path.resolve(cwd, name);
-}
-
-/** Build a config directly from flags, without prompting. */
-function configFromArgs(cwd: string, parsed: ReturnType<typeof parseArgs>): ProjectConfig {
-  const { args } = parsed;
-  const defaults = applyDefaults(args);
-  const name = args.name ?? 'demo';
-  const targetDir = resolveTargetDir(cwd, name);
-
-  const kind =
-    args.kind ??
-    (args.template ? 'template' : args.buildTool === 'gradle' ? 'gradle' : 'maven');
-  const buildTool = args.buildTool ?? (kind === 'gradle' ? 'gradle' : 'maven');
-
-  // Validate eagerly so bad flags fail before any network or disk activity.
-  if (args.groupId && !validateGroupId(args.groupId).ok) {
-    throw new Error(`invalid --group-id "${args.groupId}"`);
-  }
-  const dependencies = args.dependencies ? resolveDependencies(args.dependencies) : [];
-  const modules = args.modules ?? [];
-  const multiModule = args.multiModule ?? false;
-
-  // Spring Initializr produces a single-module project and has no parameter for
-  // extra modules, so asking for both would silently drop the modules.
-  if (kind === 'springboot' && (multiModule || modules.length > 0)) {
-    throw new Error(
-      'Spring Boot projects cannot be generated as multi-module — Initializr only produces a single module. Generate the parent with --maven or --gradle and add the Boot module separately.',
-    );
-  }
-
-  return {
-    kind,
-    name,
-    targetDir,
-    buildTool,
-    dsl: args.dsl ?? 'groovy',
-    language: args.language ?? 'java',
-    packaging: args.packaging ?? 'jar',
-    configFormat: args.configFormat ?? 'properties',
-    groupId: defaults.groupId,
-    artifactId: defaults.artifactId,
-    version: defaults.version,
-    javaVersion: defaults.javaVersion,
-    kotlinVersion: defaults.kotlinVersion,
-    bootVersion: args.bootVersion ?? DEFAULT_BOOT_VERSION,
-    packageName: defaults.packageName,
-    description: defaults.description,
-    dependencies: dependencies.map((d) => d.id),
-    bootDependencies: args.bootDependencies ?? [],
-    multiModule,
-    modules,
-    shade: false,
-    ...(args.template ? { template: args.template } : {}),
-    git: args.git ?? true,
-    install: args.install ?? false,
-    dryRun: args.dryRun ?? false,
-    force: args.force ?? false,
-  };
+  console.log();
 }
 
 /** Main entry point. Returns the process exit code. */
@@ -200,12 +80,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 2;
   }
 
-  const { args } = parsed;
-  if (args.help) {
+  if (parsed.args.help) {
     console.log(helpText());
     return 0;
   }
-  if (args.version_) {
+  if (parsed.args.version_) {
     console.log(VERSION);
     return 0;
   }
@@ -213,35 +92,17 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const cwd = process.cwd();
 
   try {
-    let config: ProjectConfig;
-
-    // The wizard is the default experience, matching `pnpm create vite`: it
-    // runs whenever the user is on a TTY and has not already pinned the
-    // decisions it would ask about.
-    const wizardBlockedBy =
-      options.noInput ||
-      !process.stdout.isTTY ||
-      !process.stdin.isTTY ||
-      args.kind !== undefined ||
-      args.template !== undefined ||
-      args.dependencies !== undefined ||
-      args.bootDependencies !== undefined ||
-      args.multiModule === true ||
-      (args.modules !== undefined && args.modules.length > 0);
-
-    if (!wizardBlockedBy) {
-      const wizardResult = await runWizard({ args, cwd });
-      if (!wizardResult) return 1;
-      config = wizardResult;
-    } else {
-      config = configFromArgs(cwd, parsed);
-    }
+    const config = shouldRunWizard(argv, options.noInput)
+      ? await runWizardOrExit(parsed.args)
+      : configFromArgs(cwd, parsed);
+    if (!config) return 1;
 
     // Guard against silently generating into a populated directory.
     if (!config.force && !config.dryRun) {
       if ((await exists(config.targetDir)) && !(await isEmptyDir(config.targetDir))) {
-        const reporter = humanReporter(colors, options.quiet);
-        reporter.error(`${config.targetDir} is not empty — pass --force to overwrite it`);
+        humanReporter(colors, options.quiet).error(
+          `${config.targetDir} is not empty — pass --force to overwrite it`,
+        );
         return 1;
       }
     }
@@ -271,42 +132,23 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     }
 
     const reporter = humanReporter(colors, options.quiet);
-
-    // Flag the confusing "persistence without a driver" combination that
-    // Initializr itself accepts but that fails at application startup.
-    if (config.kind === 'springboot') {
-      for (const warning of persistenceWarnings(config.bootDependencies)) {
-        reporter.warn(warning);
-      }
-    }
-
-    if (config.dryRun) {
-      const result = await execute(config, reporter);
-      reporter.success(`dry run: ${result.files.length} files would be written to ${config.targetDir}`);
-      return 0;
-    }
+    reportConfigWarnings(config, reporter);
 
     const result = await execute(config, reporter);
+
+    if (config.dryRun) {
+      reporter.success(
+        `dry run: ${result.files.length} files would be written to ${config.targetDir}`,
+      );
+      return 0;
+    }
 
     if (config.install && result.buildSucceeded === false) {
       reporter.warn('the project was generated but the verification build failed');
       return 1;
     }
 
-    if (!options.quiet) {
-      console.log();
-      console.log(`${colors.green('Done.')} Next steps:`);
-      console.log(`  ${colors.cyan(`cd ${path.relative(cwd, config.targetDir) || '.'}`)}`);
-      if (config.buildTool === 'maven') {
-        console.log(`  ${colors.cyan('./mvnw package')}`);
-        if (config.kind === 'springboot') console.log(`  ${colors.cyan('./mvnw spring-boot:run')}`);
-      } else {
-        console.log(`  ${colors.cyan('./gradlew build')}`);
-        if (config.kind === 'springboot') console.log(`  ${colors.cyan('./gradlew bootRun')}`);
-      }
-      console.log();
-    }
-
+    if (!options.quiet) printNextSteps(config, cwd, colors);
     return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -319,5 +161,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   }
 }
 
-/** Exported for tests: derive a full config from flags without side effects. */
-export { configFromArgs, resolveTargetDir, VERSION, VERSIONS };
+/** Run the wizard, returning `undefined` when the user cancelled. */
+async function runWizardOrExit(args: ReturnType<typeof parseArgs>['args']): Promise<ProjectConfig | undefined> {
+  return runWizard({ args, cwd: process.cwd() });
+}
+
+export { configFromArgs, resolveTargetDir, VERSION };

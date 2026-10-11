@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { VERSION } from '../src/index.js';
+import { VERSION } from '../src/config.js';
 
 describe('CLI version', () => {
   it('matches package.json', () => {
