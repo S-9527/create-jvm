@@ -1,7 +1,7 @@
 {
   "name": "create-jvm",
   "version": "0.1.2",
-  "description": "Scaffold Maven, Gradle and Spring Boot projects from the terminal — the IntelliJ IDEA New Project wizard as a CLI.",
+  "description": "Scaffold Maven, Gradle and Spring Boot projects from the terminal \u2014 the IntelliJ IDEA New Project wizard as a CLI.",
   "type": "module",
   "bin": {
     "create-jvm": "dist/cli.js"
@@ -21,7 +21,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run typecheck && npm run build && npm test"
+    "prepublishOnly": "npm run typecheck && npm run build && npm test",
+    "snapshot": "npm run build && bash scripts/snapshot-output.sh"
   },
   "keywords": [
     "cli",

@@ -244,23 +244,40 @@ npm run build       # compile to dist/
 npm run dev         # run from source via tsx
 npm test            # unit tests
 npm run typecheck   # tsc --noEmit
+npm run snapshot    # hash every generated file, for output-diffing
 ```
+
+`npm run snapshot` generates one project per configuration (language × build
+tool × packaging × single/multi-module) and hashes every file it writes. Run it
+before and after a refactor and diff the manifests to prove the generated output
+did not change — the unit tests alone would not catch a subtly different
+`build.gradle`.
 
 The source is organised so each concern is separable:
 
 | Path | Purpose |
 | ---- | ------- |
-| `src/index.ts` | entry point: argument handling, wizard or flags, dispatch |
-| `src/wizard.ts` | the interactive prompts |
+| `src/index.ts` | entry point: parse, decide wizard vs flags, dispatch |
 | `src/args.ts` | flag parsing |
+| `src/config.ts` | flags to `ProjectConfig`, plus the version lookup |
+| `src/reporters.ts` | colour handling and the human/JSON reporters |
+| `src/wizard.ts` | wizard flow: the sequence of questions |
+| `src/wizard/prompts.ts` | one function per question |
+| `src/wizard/templates.ts` | the project-type list |
 | `src/catalog.ts` | dependency catalog for plain Maven/Gradle projects |
 | `src/generators/` | one module per output: `pom`, `gradle`, `initializr`, `remote`, … |
 | `src/writer.ts` | the in-memory file map that generators return |
 | `src/run.ts` | materialise files, `git init`, optional build |
 
-Generators never touch the filesystem. They return a `FileMap`, which is what
-makes `--dry-run` trivial and the generators unit-testable without temp
-directories.
+Generators never touch the filesystem or the network. They return a `FileMap`,
+which is what makes `--dry-run` trivial, keeps the unit tests fast (the whole
+suite runs in under a second), and lets a test compare generated output against
+a hash baseline. Build wrappers are fetched in `run.ts`, where a failure can be
+reported.
+
+The Groovy and Kotlin Gradle DSLs share one structural renderer; a
+`GradleDialect` supplies only the syntax-specific fragments, so a change to the
+shared walk fixes both DSLs at once.
 
 ## License
 
