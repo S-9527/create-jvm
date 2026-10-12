@@ -1,7 +1,7 @@
 {
   "name": "create-jvm",
-  "version": "0.1.2",
-  "description": "Scaffold Maven, Gradle and Spring Boot projects from the terminal \u2014 the IntelliJ IDEA New Project wizard as a CLI.",
+  "version": "0.1.3",
+  "description": "Scaffold Maven, Gradle and Spring Boot projects from the terminal — the IntelliJ IDEA New Project wizard as a CLI.",
   "type": "module",
   "bin": {
     "create-jvm": "dist/cli.js"
